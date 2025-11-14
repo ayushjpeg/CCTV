@@ -111,7 +111,9 @@
     </div>
 
     <script>
-        const socket = io(window.location.origin);
+        const socket = io(window.location.origin, {
+            path: '/CCTV/socket.io'
+        });
         let localStream = null;
         let broadcasting = false;
         let peerConnections = {};

@@ -9,7 +9,12 @@ app = Flask(__name__, static_url_path='/CCTV/static', static_folder='static')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.secret_key = os.urandom(24)
 
-socketio = SocketIO(app, cors_allowed_origins='*', async_mode='threading')
+socketio = SocketIO(
+    app,
+    cors_allowed_origins='*',
+    async_mode='threading',
+    path='/CCTV/socket.io'
+)
 
 # Track active broadcasters: camera_id -> {sid, name, timestamp}
 BROADCASTERS = {}
