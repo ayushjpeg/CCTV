@@ -233,7 +233,10 @@
                 iceServers: [
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:stun1.l.google.com:19302' },
-                    // Add free TURN servers for NAT traversal
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' },
+                    // Free TURN servers for NAT traversal (metered.ca)
                     {
                         urls: 'turn:openrelay.metered.ca:80',
                         username: 'openrelayproject',
@@ -248,17 +251,33 @@
                         urls: 'turn:openrelay.metered.ca:443?transport=tcp',
                         username: 'openrelayproject',
                         credential: 'openrelayproject'
+                    },
+                    // Additional free TURN (Twilio's STUN/TURN)
+                    {
+                        urls: 'turn:global.turn.twilio.com:3478?transport=udp',
+                        username: 'f4b4035eaa76f4a55de5f4351567653ee4ff6fa97b50b6b334fcc1be9c27212d',
+                        credential: 'w1uxM55V9yVoqyVFjt+mxDBV0F87AUCemaYVQGxsPLw='
+                    },
+                    {
+                        urls: 'turn:global.turn.twilio.com:3478?transport=tcp',
+                        username: 'f4b4035eaa76f4a55de5f4351567653ee4ff6fa97b50b6b334fcc1be9c27212d',
+                        credential: 'w1uxM55V9yVoqyVFjt+mxDBV0F87AUCemaYVQGxsPLw='
                     }
-                ]
+                ],
+                iceTransportPolicy: 'all',  // Try all options: direct, STUN, and TURN
+                iceCandidatePoolSize: 10    // Gather more ICE candidates
             });
 
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
+                    console.log(`[PC-${peerId}] Sending ICE candidate: ${event.candidate.type}`);
                     socket.emit('ice_candidate', {
                         target_sid: peerId,
                         camera_id: peerId,
                         candidate: event.candidate
                     });
+                } else {
+                    console.log(`[PC-${peerId}] ICE gathering complete`);
                 }
             };
 
@@ -291,7 +310,19 @@
             };
 
             peerConnection.oniceconnectionstatechange = () => {
-                console.log(`[PC-${peerId}] ICE state: ${peerConnection.iceConnectionState}`);
+                const state = peerConnection.iceConnectionState;
+                console.log(`[PC-${peerId}] ICE state: ${state}`);
+                
+                // If connection fails, log detailed info
+                if (state === 'failed' || state === 'disconnected') {
+                    console.error(`[PC-${peerId}] ICE connection ${state}. This usually means NAT/firewall issue.`);
+                    
+                    // Try ICE restart
+                    if (state === 'failed' && !isBroadcaster && peerId === currentWatchCameraId) {
+                        console.log('[Watch] Attempting ICE restart...');
+                        // ICE restart will be handled by creating a new offer with iceRestart flag
+                    }
+                }
             };
 
             peerConnection.onsignalingstatechange = () => {
