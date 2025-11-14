@@ -1,7 +1,25 @@
 body { background: #111; color: #ddd; font-family: Arial, sans-serif; }
-.container { max-width: 800px; margin: 4rem auto; text-align: center; }
-.login-container { background: #222; padding: 2rem; border-radius: 6px; display: inline-block; }
+.container { max-width: 980px; margin: 2.5rem auto; padding: 0 1rem; }
+.card { background: #0f1418; border: 1px solid #23272a; border-radius: 10px; padding: 1rem; box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
+.login-container { background: #111317; padding: 1.25rem; border-radius: 8px; display: inline-block; }
 .login-container input { padding: 0.5rem; font-size: 1rem; margin: 0.5rem 0; }
-.btn { display: inline-block; padding: 0.5rem 1rem; background: #0b72b9; color: white; border-radius: 4px; text-decoration: none; }
-.stream-wrapper img { max-width: 100%; border: 1px solid #444; }
+.btn { display: inline-block; padding: 0.5rem 1rem; background: linear-gradient(180deg,#1b9be6,#0b72b9); color: white; border-radius: 6px; text-decoration: none; border: none; cursor: pointer; }
+.btn.secondary { background: transparent; border: 1px solid #333; color: #ddd; }
+.mode-row { display:flex; gap:0.5rem; justify-content:center; flex-wrap:wrap; }
+.stream-wrapper { display:flex; flex-direction:column; align-items:center; }
+video { width:100%; max-width:720px; border-radius:8px; background:black; }
+.preview { width:320px; height:240px; object-fit:cover; border-radius:6px; }
+.camera-list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:0.5rem; align-items:center; }
+.camera-list li { width:100%; max-width:560px; display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0.75rem; background:#0b0f12; border-radius:6px; border:1px solid #1f2629; }
+.camera-list a { color: #dfefff; text-decoration:none; font-weight:600; }
+.live-badge { background: linear-gradient(90deg,#ff5f6d,#ffc371); color:#111; padding:0.15rem 0.5rem; border-radius:999px; font-size:0.75rem; margin-left:0.5rem; }
+.controls { margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; }
+.status { color:#9aa7b0; font-size:0.9rem; }
+.muted { opacity:0.7; }
 .error { color: #ff8080; margin-bottom: 1rem; }
+
+@media (max-width:600px){
+	.container{ margin:1rem auto; }
+	.preview{ width:240px; height:180px; }
+	.camera-list li{ padding:0.5rem; }
+}

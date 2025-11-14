@@ -4,6 +4,7 @@ import threading
 from functools import wraps
 from io import BytesIO
 from flask import Flask, render_template, request, redirect, url_for, session, Response, abort, jsonify
+from flask_socketio import SocketIO
 from werkzeug.security import check_password_hash
 from streams import Camera
 
@@ -25,6 +26,16 @@ CAMERA_INDEX = os.environ.get('CAMERA_INDEX', '0')
 LATEST_FRAMES = {}  # camera_id -> bytes
 LAST_FEEDS = {}     # camera_id -> timestamp
 FRAME_LOCK = threading.Lock()
+# threshold in seconds after which a camera is considered stale and removed
+STALE_THRESHOLD = int(os.environ.get('CCTV_STALE_THRESHOLD', '5'))
+
+# Socket.IO for WebRTC signalling
+socketio = SocketIO(app, cors_allowed_origins='*')
+
+# publisher registry: camera_id -> publisher sid
+PUBLISHERS = {}
+# reverse map: sid -> camera_id
+SID_TO_CAMERA = {}
 
 # Simple auth decorator
 # For now authentication is disabled — allow all requests through.
@@ -151,13 +162,100 @@ def feed_status():
     now = time.time()
     out = {}
     with FRAME_LOCK:
+        # Remove stale entries immediately so viewer lists stay clean
+        to_delete = [cam_id for cam_id, ts in LAST_FEEDS.items() if now - ts > STALE_THRESHOLD]
+        for cam_id in to_delete:
+            LAST_FEEDS.pop(cam_id, None)
+            LATEST_FRAMES.pop(cam_id, None)
         for cam_id, ts in LAST_FEEDS.items():
             age = now - ts
             out[cam_id] = {
                 'age': age,
-                'alive': age < 10.0
+                'alive': age <= STALE_THRESHOLD
             }
     return jsonify(out)
+
+
+# ----------------------
+# Socket.IO signalling
+# ----------------------
+
+@socketio.on('register-publisher')
+def handle_register_publisher(data):
+    camera_id = data.get('camera_id')
+    if not camera_id:
+        return
+    PUBLISHERS[camera_id] = request.sid
+    SID_TO_CAMERA[request.sid] = camera_id
+    # mark the publisher as recently active so /CCTV/feed_status shows it as live
+    with FRAME_LOCK:
+        LAST_FEEDS[camera_id] = time.time()
+    print(f"[socket] publisher registered camera={camera_id} sid={request.sid}")
+
+
+
+@socketio.on('publisher-heartbeat')
+def handle_publisher_heartbeat(data):
+    """Heartbeat from browser-based publisher to indicate it's still online.
+
+    The client should emit this periodically so the server's /CCTV/feed_status
+    remains accurate for WebRTC publishers (which don't POST frames).
+    """
+    camera_id = data.get('camera_id')
+    if not camera_id:
+        return
+    with FRAME_LOCK:
+        LAST_FEEDS[camera_id] = time.time()
+
+
+@socketio.on('viewer-offer')
+def handle_viewer_offer(data):
+    camera_id = data.get('camera_id')
+    sdp = data.get('sdp')
+    print(f"[socket] viewer-offer for camera={camera_id} from sid={request.sid}")
+    publisher_sid = PUBLISHERS.get(camera_id)
+    if not publisher_sid:
+        socketio.emit('error', {'msg': 'no publisher for camera'}, to=request.sid)
+        return
+    # forward viewer offer to publisher
+    socketio.emit('viewer-offer', {'viewer_sid': request.sid, 'sdp': sdp}, to=publisher_sid)
+    print(f"[socket] forwarded viewer-offer for camera={camera_id} to publisher_sid={publisher_sid}")
+
+
+@socketio.on('publisher-answer')
+def handle_publisher_answer(data):
+    viewer_sid = data.get('viewer_sid')
+    sdp = data.get('sdp')
+    print(f"[socket] publisher-answer for viewer_sid={viewer_sid} from sid={request.sid}")
+    if not viewer_sid or not sdp:
+        return
+    socketio.emit('publisher-answer', {'sdp': sdp}, to=viewer_sid)
+
+
+@socketio.on('ice-candidate')
+def handle_ice(data):
+    # if 'to' provided, forward to that sid; otherwise route from viewer -> publisher by camera_id
+    to = data.get('to')
+    candidate = data.get('candidate')
+    camera_id = data.get('camera_id')
+    if to:
+        socketio.emit('ice-candidate', {'candidate': candidate, 'from': request.sid}, to=to)
+        print(f"[socket] forwarded ICE to sid={to} from sid={request.sid}")
+    else:
+        # viewer -> publisher
+        publisher_sid = PUBLISHERS.get(camera_id)
+        if publisher_sid:
+            socketio.emit('ice-candidate', {'candidate': candidate, 'from': request.sid}, to=publisher_sid)
+            print(f"[socket] forwarded ICE for camera={camera_id} to publisher_sid={publisher_sid} from sid={request.sid}")
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    sid = request.sid
+    cam = SID_TO_CAMERA.pop(sid, None)
+    if cam:
+        PUBLISHERS.pop(cam, None)
+        print(f"[socket] publisher disconnected camera={cam} sid={sid}")
 
 
 # Simple health endpoint
@@ -168,4 +266,4 @@ def health():
 
 if __name__ == '__main__':
     # for local dev only
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8000)), debug=True)
+    socketio.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8000)), debug=True)

@@ -4,17 +4,22 @@
 
 {% block main %}
   <h2>Live Stream{% if request.args.get('camera') %} - {{ request.args.get('camera') }}{% endif %}</h2>
-  <div class="stream-wrapper">
-    <img id="video" src="{{ url_for('video_feed') }}?camera={{ request.args.get('camera') }}" alt="Live feed"/>
-    <div id="feed-status-msg" style="color: #f88; margin-top: 0.5rem;"></div>
+  <div class="stream-wrapper card p-4" data-camera="{{ request.args.get('camera') or '' }}">
+    <video id="video" autoplay playsinline muted class="rounded shadow-sm bg-black"></video>
+    <!-- separate audio element to manage playback reliably and avoid browser control conflicts -->
+    <audio id="audio" autoplay style="display:none"></audio>
+    <div class="controls mt-3 flex items-center gap-3">
+      <button id="viewer-mute" class="btn secondary">Unmute</button>
+      <span id="feed-status-msg" class="text-sm text-red-400"></span>
+    </div>
   </div>
   <p>
     <a class="btn" href="{{ url_for('index') }}">Back</a>
   </p>
   <script>
-    // Poll feed_status and show message if camera not live
-    (function(){
-  const camera = {{ (request.args.get('camera') or '')|tojson }};
+  // Poll feed_status and show message if camera not live
+  async function __initCCTVStream(){
+  const camera = document.querySelector('.stream-wrapper').dataset.camera || '';
       const img = document.getElementById('video');
       const msg = document.getElementById('feed-status-msg');
 
@@ -27,6 +32,92 @@
         img.style.display = '';
       }
 
+      let started = false;
+      let pc = null;
+      const videoEl = document.getElementById('video');
+
+      async function startViewer() {
+        try {
+          const socket = io();
+          socket.on('error', (e) => { console.error('socket error (viewer):', e); });
+          // wait for socket to connect before creating offer / sending it
+          await new Promise((resolve) => {
+            socket.on('connect', () => { console.log('viewer socket connected', socket.id); resolve(); });
+          });
+          pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+          // route incoming tracks: video -> videoEl, audio -> dedicated audioEl
+          const audioEl = document.getElementById('audio');
+          const audioStream = new MediaStream();
+          audioEl.srcObject = audioStream;
+          pc.ontrack = (e) => {
+            try {
+              if (e.track && e.track.kind === 'video') {
+                videoEl.srcObject = e.streams[0];
+                videoEl.play().catch(()=>{});
+              } else if (e.track && e.track.kind === 'audio') {
+                audioStream.addTrack(e.track);
+                // ensure audio plays (user gesture may be required to unmute)
+                audioEl.play().catch(()=>{});
+              } else {
+                // fallback: attach stream if provided
+                videoEl.srcObject = e.streams[0] || videoEl.srcObject;
+              }
+            } catch(err){ console.warn('ontrack handler error', err); }
+          };
+          pc.onicecandidate = (e) => {
+            if (e.candidate) {
+              socket.emit('ice-candidate', { camera_id: camera, candidate: e.candidate });
+            }
+          };
+
+          socket.on('publisher-answer', async (data) => {
+            if (data && data.sdp) {
+              await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+              console.log('viewer received publisher-answer');
+            }
+          });
+
+          socket.on('ice-candidate', async (data) => {
+            if (data && data.candidate) {
+              try { await pc.addIceCandidate(data.candidate); } catch(e){ console.error('ICE add failed', e); }
+              console.log('viewer received ICE candidate');
+            }
+          });
+
+          // add recv-only transceivers so the offer clearly requests audio/video
+          try { pc.addTransceiver('video', { direction: 'recvonly' }); } catch(e) { /* ignore if not supported */ }
+          try { pc.addTransceiver('audio', { direction: 'recvonly' }); } catch(e) { /* ignore if not supported */ }
+          // create offer (viewer initiates)
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          socket.emit('viewer-offer', { camera_id: camera, sdp: pc.localDescription.sdp });
+          console.log('viewer sent viewer-offer for camera', camera);
+          started = true;
+        } catch (e) {
+          console.error('startViewer failed', e);
+          setOffline('Failed to start viewer');
+        }
+      }
+
+      // viewer mute/unmute button controls the dedicated audio element
+      document.addEventListener('click', (e)=>{
+        if(e.target && e.target.id === 'viewer-mute'){
+          const v = document.getElementById('video');
+          const audioEl = document.getElementById('audio');
+          // toggle audio element muted state
+          const muted = !audioEl.muted;
+          audioEl.muted = muted;
+          // also reflect in video element mute to avoid duplicate audio
+          v.muted = muted;
+          e.target.innerText = muted ? 'Unmute' : 'Mute';
+          e.target.classList.toggle('muted', muted);
+          if(!muted){
+            // user gesture to resume audio playback
+            audioEl.play().catch(()=>{});
+          }
+        }
+      });
+
       async function check(){
         try{
           const res = await fetch('/CCTV/feed_status');
@@ -35,19 +126,14 @@
           if(!camera){ setOffline('No camera id specified'); return; }
           const info = json[camera];
           if(!info || !info.alive){ setOffline('Feed is not live'); }
-          else { setOnline(); }
+          else { setOnline(); if(!started){ startViewer(); } }
         }catch(e){ setOffline('Error checking feed status'); }
       }
 
       // initial check and periodic
       check();
       setInterval(check, 3000);
-
-      // if image load fails, show friendly message
-      img.addEventListener('error', ()=>{
-        msg.innerText = 'Stream error or no frames yet.';
-        img.style.display = 'none';
-      });
-    })();
+    }
+    __initCCTVStream();
   </script>
 {% endblock %}

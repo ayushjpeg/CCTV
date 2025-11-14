@@ -3,29 +3,38 @@
 {% block title %}CCTV{% endblock %}
 
 {% block main %}
-  <h2>Welcome to CCTV</h2>
-  <p>Select a mode below:</p>
-  <div>
-    <button id="mode-camera" class="btn">Camera (share from this device)</button>
-    <button id="mode-viewer" class="btn">Viewer (watch cameras)</button>
-  </div>
+  <div class="card p-6">
+    <div class="flex items-center justify-between">
+      <h2 class="text-2xl font-semibold">CCTV</h2>
+      <div class="text-sm text-gray-400">Mobile-friendly • WebRTC</div>
+    </div>
+    <p class="mt-3 text-gray-300">Select a mode below</p>
+    <div class="mode-row mt-4">
+      <button id="mode-camera" class="btn px-4 py-2 rounded-md">Camera</button>
+      <button id="mode-viewer" class="btn secondary px-4 py-2 rounded-md">Viewer</button>
+    </div>
 
-  <div id="camera-ui" style="display:none; margin-top:1rem;">
-    <h3>Camera mode</h3>
-    <p>Give a name for this camera (any identifier):</p>
-    <input id="camera-id" placeholder="camera-1">
-  <p>If the server requires a feed key, enter it here (keeps your camera private):</p>
-  <input id="feed-key" placeholder="feed-key (optional)">
-    <p>FPS: <input id="camera-fps" type="number" value="5" min="1" max="30"></p>
-    <p><button id="start-camera" class="btn">Start streaming</button></p>
-    <video id="preview" autoplay playsinline style="width:320px;height:240px;border:1px solid #444; display:block;"></video>
-    <p id="camera-status"></p>
-  </div>
+    <div id="camera-ui" class="mt-4 hidden">
+      <h3 class="text-lg font-medium">Camera mode</h3>
+      <label class="block text-sm text-gray-300 mt-2">Camera name</label>
+      <input id="camera-id" class="w-full mt-1 p-2 rounded bg-slate-900 text-white" placeholder="camera-1">
+      <label class="block text-sm text-gray-300 mt-3">FPS</label>
+      <input id="camera-fps" type="number" value="30" min="1" max="60" class="w-24 mt-1 p-2 rounded bg-slate-900 text-white">
+      <div class="mt-4">
+        <button id="start-camera" class="btn px-4 py-2">Start streaming</button>
+      </div>
+      <video id="preview" class="preview mt-4 rounded shadow-sm" autoplay playsinline muted></video>
+      <div class="controls mt-3 flex items-center gap-3">
+        <button id="toggle-mic" class="btn secondary">Mic Off</button>
+        <span id="camera-status" class="text-sm text-gray-400"></span>
+      </div>
+    </div>
 
-  <div id="viewer-ui" style="display:none; margin-top:1rem;">
-    <h3>Viewer mode</h3>
-    <p>Select a camera to watch (active cameras):</p>
-    <ul id="camera-list"></ul>
+    <div id="viewer-ui" class="mt-4 hidden">
+      <h3 class="text-lg font-medium">Viewer mode</h3>
+      <p class="text-sm text-gray-400 mt-1">Select a camera to watch (active cameras):</p>
+      <ul id="camera-list" class="camera-list mt-3"></ul>
+    </div>
   </div>
 
   <script>
@@ -39,47 +48,73 @@
     // Camera capture & push
     let stream, intervalHandle;
     document.getElementById('start-camera').addEventListener('click', async ()=>{
-      const camId = document.getElementById('camera-id').value || ('cam-' + Math.random().toString(36).slice(2,7));
-      const fps = Math.max(1, parseFloat(document.getElementById('camera-fps').value || 5));
-      const preview = document.getElementById('preview');
-      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      preview.srcObject = stream;
-      const track = stream.getVideoTracks()[0];
-      const imageCapture = new ImageCapture(track);
-      const interval = 1000 / fps;
-      document.getElementById('camera-status').innerText = 'Streaming as ' + camId;
+    const camId = document.getElementById('camera-id').value || ('cam-' + Math.random().toString(36).slice(2,7));
+        const preview = document.getElementById('preview');
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        preview.srcObject = stream;
+  document.getElementById('camera-status').innerText = 'Ready — streaming as ' + camId;
 
-      intervalHandle = setInterval(async ()=>{
-        try{
-          const bitmap = await imageCapture.grabFrame();
-          const canvas = document.createElement('canvas');
-          canvas.width = bitmap.width; canvas.height = bitmap.height;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(bitmap,0,0);
-          canvas.toBlob(async (blob)=>{
-            try{
-              const headers = {};
-              const feedKey = document.getElementById('feed-key').value || localStorage.getItem('cctv_feed_key');
-              if (feedKey) {
-                headers['X-Feed-Key'] = feedKey;
-                // persist locally so user doesn't re-enter
-                localStorage.setItem('cctv_feed_key', feedKey);
-              }
+        // connect to Socket.IO signalling
+        const socket = io();
+        socket.on('connect', () => {
+          console.log('publisher socket connected', socket.id);
+          // register publisher only after socket has connected
+          socket.emit('register-publisher', { camera_id: camId });
+          // send periodic heartbeat so the server knows this publisher is alive
+          heartbeatInterval = setInterval(() => {
+            socket.emit('publisher-heartbeat', { camera_id: camId });
+          }, 2000);
+        });
+        socket.on('error', (e) => { console.error('socket error (publisher):', e); });
+        let heartbeatInterval = null;
 
-              const res = await fetch('/CCTV/push_frame?camera=' + encodeURIComponent(camId), { method: 'POST', headers: headers, body: blob, credentials: 'include' });
-              if (res.status === 403) {
-                document.getElementById('camera-status').innerText = 'Feed rejected (invalid feed key)';
-                clearInterval(intervalHandle);
-                return;
-              } else if (res.status >= 400) {
-                document.getElementById('camera-status').innerText = 'Push error: ' + res.status;
-                console.error('push error', res.status, await res.text());
-                return;
-              }
-            }catch(e){ console.error('push exception', e); document.getElementById('camera-status').innerText = 'Push exception'; }
-          }, 'image/jpeg', 0.8);
-        }catch(e){ console.error('frame capture', e); }
-      }, interval);
+  const pcs = {}; // viewer_sid -> RTCPeerConnection
+
+        socket.on('viewer-offer', async (data) => {
+          const viewer_sid = data.viewer_sid;
+          const sdp = data.sdp;
+          console.log('viewer-offer from', viewer_sid);
+          const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+          pcs[viewer_sid] = pc;
+
+          // add local tracks
+          stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+          pc.onicecandidate = (e) => {
+            if (e.candidate) {
+              socket.emit('ice-candidate', { to: viewer_sid, candidate: e.candidate });
+            }
+          };
+
+          try {
+            await pc.setRemoteDescription({ type: 'offer', sdp: sdp });
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+              socket.emit('publisher-answer', { viewer_sid: viewer_sid, sdp: pc.localDescription.sdp });
+              console.log('sent publisher-answer to viewer', viewer_sid);
+          } catch (e) {
+            console.error('failed to handle viewer-offer', e);
+          }
+        });
+
+        socket.on('ice-candidate', (data) => {
+          const from = data.from;
+          const candidate = data.candidate;
+          const pc = pcs[from];
+          if (pc) pc.addIceCandidate(candidate).catch(e => console.error('addIce failed', e));
+        });
+        socket.on('disconnect', () => { console.log('publisher socket disconnected'); });
+        // toggle mic button (update label & track.enabled reliably)
+        document.getElementById('toggle-mic').addEventListener('click', ()=>{
+          if(!stream) return;
+          const audioTracks = stream.getAudioTracks();
+          if(!audioTracks.length) return;
+          const enabled = !audioTracks[0].enabled;
+          audioTracks.forEach(t => t.enabled = enabled);
+          document.getElementById('toggle-mic').innerText = enabled ? 'Mic On' : 'Mic Off';
+        });
+    // clear heartbeat when page unloads
+    window.addEventListener('beforeunload', () => { if (heartbeatInterval) clearInterval(heartbeatInterval); });
     });
 
     async function fetchCameras(){
@@ -91,10 +126,31 @@
         ul.innerHTML = '';
         for(const id in json){
           const li = document.createElement('li');
+          const left = document.createElement('div');
+          left.style.display = 'flex';
+          left.style.alignItems = 'center';
           const a = document.createElement('a');
           a.href = '/CCTV/stream?camera=' + encodeURIComponent(id);
-          a.innerText = id + (json[id].alive? ' (live)':' (stale)');
-          li.appendChild(a);
+          a.innerText = id;
+          left.appendChild(a);
+
+          const right = document.createElement('div');
+          right.style.display = 'flex';
+          right.style.alignItems = 'center';
+          if(json[id].alive){
+            const b = document.createElement('span');
+            b.className = 'live-badge';
+            b.innerText = 'LIVE';
+            right.appendChild(b);
+          } else {
+            const stale = document.createElement('span');
+            stale.className = 'status';
+            stale.innerText = 'stale';
+            right.appendChild(stale);
+          }
+
+          li.appendChild(left);
+          li.appendChild(right);
           ul.appendChild(li);
         }
       }catch(e){ ul.innerHTML = 'Error loading camera list'; }

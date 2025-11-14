@@ -28,5 +28,5 @@ EXPOSE ${PORT}
 # Default env vars (do NOT store secrets here; pass them at runtime)
 ENV CAMERA_INDEX=0
 
-# Run with gunicorn on port 8001
-CMD ["gunicorn", "-b", "0.0.0.0:8001", "app:app", "--workers", "2"]
+# Run with gunicorn + eventlet worker for Socket.IO support
+CMD ["gunicorn", "-k", "eventlet", "-w", "1", "app:app", "-b", "0.0.0.0:8001"]
