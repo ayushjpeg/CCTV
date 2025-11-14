@@ -1,0 +1,13 @@
+{% extends "layout.html" %}
+
+{% block title %}Live Stream{% endblock %}
+
+{% block main %}
+  <h2>Live Stream{% if request.args.get('camera') %} - {{ request.args.get('camera') }}{% endif %}</h2>
+  <div class="stream-wrapper">
+  <img id="video" src="{{ url_for('video_feed') }}?camera={{ request.args.get('camera') }}" alt="Live feed"/>
+  </div>
+  <p>
+    <a class="btn" href="{{ url_for('index') }}">Back</a>
+  </p>
+{% endblock %}

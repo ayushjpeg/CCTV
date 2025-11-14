@@ -1,0 +1,89 @@
+{% extends "layout.html" %}
+
+{% block title %}CCTV{% endblock %}
+
+{% block main %}
+  <h2>Welcome to CCTV</h2>
+  <p>Select a mode below:</p>
+  <div>
+    <button id="mode-camera" class="btn">Camera (share from this device)</button>
+    <button id="mode-viewer" class="btn">Viewer (watch cameras)</button>
+  </div>
+
+  <div id="camera-ui" style="display:none; margin-top:1rem;">
+    <h3>Camera mode</h3>
+    <p>Give a name for this camera (any identifier):</p>
+    <input id="camera-id" placeholder="camera-1">
+    <p>FPS: <input id="camera-fps" type="number" value="5" min="1" max="30"></p>
+    <p><button id="start-camera" class="btn">Start streaming</button></p>
+    <video id="preview" autoplay playsinline style="width:320px;height:240px;border:1px solid #444; display:block;"></video>
+    <p id="camera-status"></p>
+  </div>
+
+  <div id="viewer-ui" style="display:none; margin-top:1rem;">
+    <h3>Viewer mode</h3>
+    {% if session.logged_in %}
+      <p>Select a camera to watch (active cameras):</p>
+      <ul id="camera-list"></ul>
+    {% else %}
+      <p>You must <a href="{{ url_for('login') }}">login</a> to view cameras.</p>
+    {% endif %}
+  </div>
+
+  <script>
+    const cameraBtn = document.getElementById('mode-camera');
+    const viewerBtn = document.getElementById('mode-viewer');
+    const cameraUI = document.getElementById('camera-ui');
+    const viewerUI = document.getElementById('viewer-ui');
+    cameraBtn.addEventListener('click', ()=>{ cameraUI.style.display='block'; viewerUI.style.display='none'; });
+    viewerBtn.addEventListener('click', ()=>{ viewerUI.style.display='block'; cameraUI.style.display='none'; fetchCameras(); });
+
+    // Camera capture & push
+    let stream, intervalHandle;
+    document.getElementById('start-camera').addEventListener('click', async ()=>{
+      const camId = document.getElementById('camera-id').value || ('cam-' + Math.random().toString(36).slice(2,7));
+      const fps = Math.max(1, parseFloat(document.getElementById('camera-fps').value || 5));
+      const preview = document.getElementById('preview');
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      preview.srcObject = stream;
+      const track = stream.getVideoTracks()[0];
+      const imageCapture = new ImageCapture(track);
+      const interval = 1000 / fps;
+      document.getElementById('camera-status').innerText = 'Streaming as ' + camId;
+
+      intervalHandle = setInterval(async ()=>{
+        try{
+          const bitmap = await imageCapture.grabFrame();
+          const canvas = document.createElement('canvas');
+          canvas.width = bitmap.width; canvas.height = bitmap.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(bitmap,0,0);
+          canvas.toBlob(async (blob)=>{
+            try{
+              await fetch('/CCTV/push_frame?camera=' + encodeURIComponent(camId), { method: 'POST', body: blob });
+            }catch(e){ console.error('push error', e); }
+          }, 'image/jpeg', 0.8);
+        }catch(e){ console.error('frame capture', e); }
+      }, interval);
+    });
+
+    async function fetchCameras(){
+      const ul = document.getElementById('camera-list');
+      ul.innerHTML = 'Loading...';
+      try{
+        const res = await fetch('/CCTV/feed_status');
+        const json = await res.json();
+        ul.innerHTML = '';
+        for(const id in json){
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = '/CCTV/stream?camera=' + encodeURIComponent(id);
+          a.innerText = id + (json[id].alive? ' (live)':' (stale)');
+          li.appendChild(a);
+          ul.appendChild(li);
+        }
+      }catch(e){ ul.innerHTML = 'Error loading camera list'; }
+    }
+  </script>
+
+{% endblock %}

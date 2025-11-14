@@ -1,0 +1,39 @@
+name: Build and Deploy CCTV
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    # run on your self-hosted runner (Ubuntu server you mentioned)
+    runs-on: [self-hosted, linux]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t cctv-app:latest .
+
+      - name: Stop existing container (if any)
+        run: |
+          docker rm -f cctv || true
+
+      - name: Run new container
+        env:
+          CCTV_PASSWORD_HASH: ${{ secrets.CCTV_PASSWORD_HASH }}
+          CAMERA_INDEX: ${{ secrets.CAMERA_INDEX }}
+          CCTV_FEED_KEY: ${{ secrets.CCTV_FEED_KEY }}
+        run: |
+          docker run -d --restart unless-stopped \
+            --name cctv \
+            -p 8001:8001 \
+            -e CCTV_PASSWORD_HASH="$CCTV_PASSWORD_HASH" \
+            -e CAMERA_INDEX="$CAMERA_INDEX" \
+            -e CCTV_FEED_KEY="$CCTV_FEED_KEY" \
+            --device /dev/video0:/dev/video0 \
+            cctv-app:latest

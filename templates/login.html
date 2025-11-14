@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <title>CCTV Login</title>
+  </head>
+  <body>
+    <div class="login-container">
+      <h2>CCTV Access</h2>
+      {% if error %}
+      <div class="error">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="{{ url_for('login') }}">
+        <input type="password" name="password" placeholder="Enter password" autofocus>
+        <button type="submit">Unlock</button>
+      </form>
+    </div>
+  </body>
+</html>

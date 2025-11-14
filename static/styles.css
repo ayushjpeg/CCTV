@@ -1,0 +1,7 @@
+body { background: #111; color: #ddd; font-family: Arial, sans-serif; }
+.container { max-width: 800px; margin: 4rem auto; text-align: center; }
+.login-container { background: #222; padding: 2rem; border-radius: 6px; display: inline-block; }
+.login-container input { padding: 0.5rem; font-size: 1rem; margin: 0.5rem 0; }
+.btn { display: inline-block; padding: 0.5rem 1rem; background: #0b72b9; color: white; border-radius: 4px; text-decoration: none; }
+.stream-wrapper img { max-width: 100%; border: 1px solid #444; }
+.error { color: #ff8080; margin-bottom: 1rem; }
