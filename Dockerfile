@@ -25,9 +25,6 @@ COPY . /app
 
 EXPOSE ${PORT}
 
-# Default env vars (do NOT store secrets here; pass them at runtime)
-ENV CAMERA_INDEX=0
-
-# Run with gunicorn + eventlet worker for Socket.IO support
-# Use one worker and eventlet worker class; adjust workers/threads as needed in production.
-CMD ["gunicorn", "-k", "eventlet", "-w", "1", "app:app", "-b", "0.0.0.0:8001"]
+# Run Flask with SocketIO (threading mode)
+# For production, use gunicorn with python-socketio worker or uWSGI with gevent
+CMD ["python", "-u", "app.py"]
