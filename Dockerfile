@@ -9,7 +9,7 @@ WORKDIR /app
 # Install system deps for OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libgl1-mesa-glx libglib2.0-0 ffmpeg v4l-utils \
+    libgl1 libglib2.0-0 ffmpeg v4l-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy app
@@ -25,9 +25,7 @@ COPY . /app
 
 EXPOSE ${PORT}
 
-# Default env vars
-ENV CCTV_PASSWORD_HASH=""
-ENV CCTV_FEED_KEY=""
+# Default env vars (do NOT store secrets here; pass them at runtime)
 ENV CAMERA_INDEX=0
 
 # Run with gunicorn on port 8001
