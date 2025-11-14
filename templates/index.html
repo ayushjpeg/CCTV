@@ -102,8 +102,11 @@
             </div>
             <!-- Remote Video Player (hidden by default) -->
             <div id="videoPlayerModal" style="display: none; margin-top: 3rem;">
+                <div id="watchStatus" style="padding: 1rem; background: rgba(59, 130, 246, 0.2); color: #93c5fd; border-radius: 6px; margin-bottom: 1rem; text-align: center;">
+                    Connecting...
+                </div>
                 <div style="background: #1a1a1a; border: 2px solid #333; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; margin-bottom: 1.5rem;">
-                    <video id="remoteVideo" autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
+                    <video id="remoteVideo" autoplay playsinline controls style="width: 100%; height: 100%; object-fit: cover;"></video>
                 </div>
                 <button class="btn btn-primary" onclick="closeRemoteVideo()" style="width: auto; padding: 0.75rem 2rem;">Close Video</button>
             </div>
@@ -261,6 +264,30 @@
 
             peerConnection.onconnectionstatechange = () => {
                 console.log(`[PC-${peerId}] Connection state: ${peerConnection.connectionState}`);
+                const statusEl = document.getElementById('watchStatus');
+                if (statusEl && !isBroadcaster) {
+                    switch(peerConnection.connectionState) {
+                        case 'connecting':
+                            statusEl.textContent = '🔄 Connecting...';
+                            statusEl.style.background = 'rgba(59, 130, 246, 0.2)';
+                            break;
+                        case 'connected':
+                            statusEl.textContent = '✅ Connected - Receiving video';
+                            statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
+                            statusEl.style.color = '#86efac';
+                            break;
+                        case 'disconnected':
+                            statusEl.textContent = '⚠️ Disconnected';
+                            statusEl.style.background = 'rgba(251, 191, 36, 0.2)';
+                            statusEl.style.color = '#fcd34d';
+                            break;
+                        case 'failed':
+                            statusEl.textContent = '❌ Connection failed';
+                            statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
+                            statusEl.style.color = '#fca5a5';
+                            break;
+                    }
+                }
             };
 
             peerConnection.oniceconnectionstatechange = () => {
@@ -308,6 +335,7 @@
                 // Close previous connection if exists
                 if (currentWatchPeer) {
                     currentWatchPeer.close();
+                    delete peerConnections[currentWatchCameraId];
                 }
 
                 const pc = createPeerConnection(cameraId, false);
@@ -315,18 +343,31 @@
                 currentWatchCameraId = cameraId;
 
                 pc.ontrack = (event) => {
+                    console.log(`[Watch] ontrack event received, streams: ${event.streams.length}`);
                     remoteStream = event.streams[0];
                     const video = document.getElementById('remoteVideo');
                     video.srcObject = remoteStream;
+                    video.play().catch(e => {
+                        console.error('[Watch] Video play error:', e);
+                        // Try to play on user interaction
+                        video.muted = true;
+                        video.play().catch(err => console.error('[Watch] Muted play failed:', err));
+                    });
                     console.log(`[Watch] Playing video from ${cameraId}`);
                 };
 
-                pc.addTransceiver('video', { direction: 'recvonly' });
-                pc.addTransceiver('audio', { direction: 'recvonly' });
+                // Force codec compatibility
+                pc.addTransceiver('video', { 
+                    direction: 'recvonly'
+                });
+                pc.addTransceiver('audio', { 
+                    direction: 'recvonly'
+                });
 
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
 
+                console.log(`[Watch] Sending offer for camera ${cameraId}`);
                 socket.emit('viewer_offer', {
                     camera_id: cameraId,
                     sdp: offer.sdp
