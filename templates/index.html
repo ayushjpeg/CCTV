@@ -239,6 +239,9 @@
         });
 
         function createPeerConnection(peerId, isBroadcaster) {
+            // Force relay mode for broadcaster to bypass laptop NAT issues
+            const transportPolicy = isBroadcaster ? 'relay' : 'all';
+            
             const peerConnection = new RTCPeerConnection({
                 iceServers: [
                     // YOUR OWN TURN SERVER
@@ -253,8 +256,8 @@
                         credential: 'wheresrusty'
                     }
                 ],
-                iceTransportPolicy: 'all',  // Try all options: direct, STUN, and TURN
-                iceCandidatePoolSize: 10    // Gather more ICE candidates
+                iceTransportPolicy: transportPolicy,  // Force relay for broadcasters
+                iceCandidatePoolSize: 10              // Gather more ICE candidates
             });
 
             peerConnection.onicecandidate = (event) => {
