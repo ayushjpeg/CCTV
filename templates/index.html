@@ -206,19 +206,22 @@
 
         socket.on('ice_candidate', (data) => {
             const { from_sid, candidate } = data;
-            console.log(`[Ice] Received from ${from_sid}, for peer ${currentWatchCameraId || 'broadcast'}`);
+            console.log(`[Ice] Received ICE candidate from ${from_sid}`);
             
-            // For viewers: the from_sid is the broadcaster
-            if (currentWatchPeer && from_sid && from_sid !== currentWatchCameraId) {
-                console.log(`[Watch] Adding ICE candidate`);
-                currentWatchPeer.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error('ICE error:', e));
+            // Check if this is for our current watch peer connection
+            if (currentWatchPeer && currentWatchCameraId) {
+                // We're a viewer - add the ICE candidate to our watch peer
+                console.log(`[Watch] Adding ICE candidate from broadcaster`);
+                currentWatchPeer.addIceCandidate(new RTCIceCandidate(candidate))
+                    .catch(e => console.error('[Watch] ICE error:', e));
             }
             
-            // For broadcasters: check peerConnections
+            // Check if this is for a broadcaster's peer connection with a viewer
             const pc = peerConnections[from_sid];
             if (pc) {
-                console.log(`[Broadcast] Adding ICE candidate`);
-                pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn('ICE error:', e));
+                console.log(`[Broadcast] Adding ICE candidate from viewer ${from_sid}`);
+                pc.addIceCandidate(new RTCIceCandidate(candidate))
+                    .catch(e => console.warn('[Broadcast] ICE error:', e));
             }
         });
 
