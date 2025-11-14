@@ -14,6 +14,8 @@
     <h3>Camera mode</h3>
     <p>Give a name for this camera (any identifier):</p>
     <input id="camera-id" placeholder="camera-1">
+  <p>If the server requires a feed key, enter it here (keeps your camera private):</p>
+  <input id="feed-key" placeholder="feed-key (optional)">
     <p>FPS: <input id="camera-fps" type="number" value="5" min="1" max="30"></p>
     <p><button id="start-camera" class="btn">Start streaming</button></p>
     <video id="preview" autoplay playsinline style="width:320px;height:240px;border:1px solid #444; display:block;"></video>
@@ -60,8 +62,25 @@
           ctx.drawImage(bitmap,0,0);
           canvas.toBlob(async (blob)=>{
             try{
-              await fetch('/CCTV/push_frame?camera=' + encodeURIComponent(camId), { method: 'POST', body: blob });
-            }catch(e){ console.error('push error', e); }
+              const headers = {};
+              const feedKey = document.getElementById('feed-key').value || localStorage.getItem('cctv_feed_key');
+              if (feedKey) {
+                headers['X-Feed-Key'] = feedKey;
+                // persist locally so user doesn't re-enter
+                localStorage.setItem('cctv_feed_key', feedKey);
+              }
+
+              const res = await fetch('/CCTV/push_frame?camera=' + encodeURIComponent(camId), { method: 'POST', headers: headers, body: blob, credentials: 'include' });
+              if (res.status === 403) {
+                document.getElementById('camera-status').innerText = 'Feed rejected (invalid feed key)';
+                clearInterval(intervalHandle);
+                return;
+              } else if (res.status >= 400) {
+                document.getElementById('camera-status').innerText = 'Push error: ' + res.status;
+                console.error('push error', res.status, await res.text());
+                return;
+              }
+            }catch(e){ console.error('push exception', e); document.getElementById('camera-status').innerText = 'Push exception'; }
           }, 'image/jpeg', 0.8);
         }catch(e){ console.error('frame capture', e); }
       }, interval);
