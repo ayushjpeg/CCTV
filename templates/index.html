@@ -54,8 +54,9 @@
         preview.srcObject = stream;
   document.getElementById('camera-status').innerText = 'Ready — streaming as ' + camId;
 
-        // connect to Socket.IO signalling
-        const socket = io();
+  // connect to Socket.IO signalling (use correct path when behind a proxy)
+  const socketBase = (function(){ const p = window.location.pathname.split('/').filter(Boolean); return p.length ? ('/' + p[0]) : ''; })();
+  const socket = io({ path: (socketBase || window.CCTV_BASE || '') + '/socket.io' });
         socket.on('connect', () => {
           console.log('publisher socket connected', socket.id);
           // register publisher only after socket has connected

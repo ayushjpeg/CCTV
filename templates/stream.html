@@ -38,7 +38,8 @@
 
       async function startViewer() {
         try {
-          const socket = io();
+          const socketBase = (function(){ const p = window.location.pathname.split('/').filter(Boolean); return p.length ? ('/' + p[0]) : ''; })();
+          const socket = io({ path: (socketBase || window.CCTV_BASE || '') + '/socket.io' });
           socket.on('error', (e) => { console.error('socket error (viewer):', e); });
           // wait for socket to connect before creating offer / sending it
           await new Promise((resolve) => {

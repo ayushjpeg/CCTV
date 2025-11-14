@@ -14,5 +14,12 @@
     </main>
     <!-- Socket.IO client -->
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <script>
+      // Compute base prefix so client can connect to socket.io when app is reverse-proxied
+      (function(){
+        const parts = window.location.pathname.split('/').filter(Boolean);
+        window.CCTV_BASE = parts.length ? ('/' + parts[0]) : '';
+      })();
+    </script>
   </body>
 </html>
