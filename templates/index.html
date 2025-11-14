@@ -1,165 +1,348 @@
-{% extends "layout.html" %}
-
-{% block title %}CCTV{% endblock %}
-
-{% block main %}
-  <div class="card p-6">
-    <div class="flex items-center justify-between">
-      <h2 class="text-2xl font-semibold">CCTV</h2>
-    <div class="text-sm text-gray-400">Mobile-friendly • MJPEG push/poll</div>
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCTV WebRTC System</title>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f0f; color: #fff; }
+        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem 2rem; }
+        .navbar h1 { font-size: 1.8rem; }
+        .container { max-width: 1400px; margin: 2rem auto; padding: 0 1rem; }
+        .tabs { display: flex; gap: 1rem; margin-bottom: 2rem; }
+        .tab-btn { padding: 0.75rem 1.5rem; background: #2a2a2a; border: none; color: #aaa; cursor: pointer; border-radius: 8px; font-weight: 600; transition: all 0.3s; }
+        .tab-btn.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        .broadcast-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+        @media (max-width: 1024px) { .broadcast-grid { grid-template-columns: 1fr; } }
+        
+        .preview-box { background: #1a1a1a; border: 2px solid #333; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; }
+        #localVideo { width: 100%; height: 100%; object-fit: cover; }
+        
+        .control-panel { background: #1a1a1a; border: 2px solid #333; border-radius: 12px; padding: 2rem; }
+        .control-group { margin-bottom: 1.5rem; }
+        .control-group label { display: block; margin-bottom: 0.5rem; font-weight: 600; color: #ccc; }
+        .control-group input, .control-group select { width: 100%; padding: 0.75rem; background: #2a2a2a; border: 1px solid #444; border-radius: 6px; color: #fff; font-size: 1rem; }
+        .btn { width: 100%; padding: 0.75rem; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4); }
+        .status { padding: 1rem; background: #2a2a2a; border-radius: 6px; margin-top: 1rem; text-align: center; }
+        .status.info { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+        .status.error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+        
+        .cameras-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; }
+        .camera-card { background: #1a1a1a; border: 2px solid #333; border-radius: 12px; padding: 1.5rem; cursor: pointer; transition: all 0.3s; text-decoration: none; color: #fff; display: block; }
+        .camera-card:hover { border-color: #667eea; transform: translateY(-4px); box-shadow: 0 8px 20px rgba(102, 126, 234, 0.2); }
+        .camera-card .name { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem; }
+        .camera-card .status { background: transparent; padding: 0; margin-top: 0.5rem; text-align: left; }
+        .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; background: rgba(34, 197, 94, 0.2); color: #86efac; }
+        
+        .no-cameras { text-align: center; padding: 4rem 2rem; color: #999; grid-column: 1/-1; }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h1> CCTV WebRTC System</h1>
     </div>
-    <p class="mt-3 text-gray-300">Select a mode below</p>
-    <div class="mode-row mt-4">
-      <button id="mode-camera" class="btn px-4 py-2 rounded-md">Camera</button>
-      <button id="mode-viewer" class="btn secondary px-4 py-2 rounded-md">Viewer</button>
-    </div>
 
-    <div id="camera-ui" class="mt-4 hidden">
-      <h3 class="text-lg font-medium">Camera mode</h3>
-      <label class="block text-sm text-gray-300 mt-2">Camera name</label>
-      <input id="camera-id" class="w-full mt-1 p-2 rounded bg-slate-900 text-white" placeholder="camera-1">
-      <label class="block text-sm text-gray-300 mt-3">FPS</label>
-      <input id="camera-fps" type="number" value="30" min="1" max="60" class="w-24 mt-1 p-2 rounded bg-slate-900 text-white">
-      <div class="mt-4">
-        <div class="flex gap-3">
-          <button id="start-push" class="btn secondary px-4 py-2">Start simple (MJPEG) push</button>
+    <div class="container">
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab(0)"> Broadcast</button>
+            <button class="tab-btn" onclick="switchTab(1)"> Watch</button>
         </div>
-      </div>
-      <video id="preview" class="preview mt-4 rounded shadow-sm" autoplay playsinline muted></video>
-      <div class="controls mt-3 flex items-center gap-3">
-        <span id="camera-status" class="text-sm text-gray-400"></span>
-      </div>
+
+        <!-- Broadcast Tab -->
+        <div id="tab0" class="tab-content active">
+            <div class="broadcast-grid">
+                <div>
+                    <h2 style="margin-bottom: 1rem;">Camera Preview</h2>
+                    <div class="preview-box">
+                        <video id="localVideo" autoplay playsinline muted></video>
+                    </div>
+                </div>
+                <div>
+                    <h2 style="margin-bottom: 1rem;">Broadcast Settings</h2>
+                    <div class="control-panel">
+                        <div class="control-group">
+                            <label>Camera Name</label>
+                            <input type="text" id="cameraName" placeholder="e.g., Living Room" value="cam-01">
+                        </div>
+                        <div class="control-group">
+                            <label>Video Resolution</label>
+                            <select id="resolution">
+                                <option value="320x240">Low (320x240)</option>
+                                <option value="640x480">Medium (640x480)</option>
+                                <option value="1280x720" selected>High (720p)</option>
+                                <option value="1920x1080">Very High (1080p)</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Audio</label>
+                            <select id="audioEnable">
+                                <option value="false">No Audio</option>
+                                <option value="true" selected>With Audio</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" id="startBtn" onclick="startBroadcast()">Start Broadcasting</button>
+                        <div id="bcStatus" class="status info" style="display: none;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Watch Tab -->
+        <div id="tab1" class="tab-content">
+            <h2 style="margin-bottom: 2rem;">Available Cameras</h2>
+            <div id="camerasList" class="cameras-grid">
+                <div class="no-cameras">Loading cameras...</div>
+            </div>
+            <!-- Remote Video Player (hidden by default) -->
+            <div id="videoPlayerModal" style="display: none; margin-top: 3rem;">
+                <div style="background: #1a1a1a; border: 2px solid #333; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; margin-bottom: 1.5rem;">
+                    <video id="remoteVideo" autoplay playsinline style="width: 100%; height: 100%; object-fit: cover;"></video>
+                </div>
+                <button class="btn btn-primary" onclick="closeRemoteVideo()" style="width: auto; padding: 0.75rem 2rem;">Close Video</button>
+            </div>
+        </div>
     </div>
 
-    <div id="viewer-ui" class="mt-4 hidden">
-      <h3 class="text-lg font-medium">Viewer mode</h3>
-      <p class="text-sm text-gray-400 mt-1">Select a camera to watch (active cameras):</p>
-      <ul id="camera-list" class="camera-list mt-3"></ul>
-    </div>
-  </div>
+    <script>
+        const socket = io(window.location.origin);
+        let localStream = null;
+        let broadcasting = false;
+        let peerConnections = {};
 
-  <script>
-    const STALE_THRESHOLD = {{ STALE_THRESHOLD | default(5) }};
-    const cameraBtn = document.getElementById('mode-camera');
-    const viewerBtn = document.getElementById('mode-viewer');
-    const cameraUI = document.getElementById('camera-ui');
-    const viewerUI = document.getElementById('viewer-ui');
-    cameraBtn.addEventListener('click', ()=>{ cameraUI.style.display='block'; viewerUI.style.display='none'; });
-    viewerBtn.addEventListener('click', async ()=>{ viewerUI.style.display='block'; cameraUI.style.display='none'; fetchCameras(); });
-
-    // Camera capture & push
-    let stream, intervalHandle;
-
-  // Simple MJPEG push publisher
-    let pushInterval = null;
-    document.getElementById('start-push').addEventListener('click', async ()=>{
-      const camId = document.getElementById('camera-id').value || ('cam-' + Math.random().toString(36).slice(2,7));
-      const fps = Math.max(1, Math.min(30, parseInt(document.getElementById('camera-fps').value || '15')));
-      try{
-        const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        stream = s;
-        const preview = document.getElementById('preview');
-        preview.srcObject = stream;
-        // wait for the video element to be ready and playing before capturing frames
-        await new Promise((resolve, reject) => {
-          const onCanPlay = () => { preview.removeEventListener('canplay', onCanPlay); resolve(); };
-          const onError = (ev) => { preview.removeEventListener('error', onError); reject(new Error('Video element error')); };
-          preview.addEventListener('canplay', onCanPlay);
-          preview.addEventListener('error', onError);
-          // try to play (some browsers require an explicit play to start rendering)
-          preview.play().catch(()=>{});
-          // timeout if video doesn't become ready
-          setTimeout(()=>{ preview.removeEventListener('canplay', onCanPlay); reject(new Error('Timed out waiting for video feed')); }, 3000);
-        });
-
-        document.getElementById('camera-status').innerText = 'Pushing frames as ' + camId + ' (' + fps + 'fps)';
-
-        // create a hidden canvas to draw frames
-        const videoTrack = stream.getVideoTracks()[0];
-        const settings = videoTrack.getSettings ? videoTrack.getSettings() : {};
-        const w = settings.width || preview.videoWidth || 640;
-        const h = settings.height || preview.videoHeight || 480;
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-
-        async function pushFrame(){
-          try{
-            // draw the currently rendered video frame
-            ctx.drawImage(preview, 0, 0, canvas.width, canvas.height);
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.7));
-            if(!blob) return;
-            // POST as raw JPEG body with header X-Cam-ID so server stores it
-            fetch('/CCTV/push_frame', {
-              method: 'POST',
-              headers: {
-                'X-Cam-ID': camId
-              },
-              body: blob,
-            }).catch(e=> console.warn('push_frame failed', e));
-          }catch(e){ console.error('pushFrame error', e); }
+        function switchTab(n) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab' + n).classList.add('active');
+            document.querySelectorAll('.tab-btn')[n].classList.add('active');
         }
 
-        // start interval
-        pushInterval = setInterval(pushFrame, 1000 / fps);
-        // also push one immediately
-        pushFrame();
-
-        // stop on unload
-        window.addEventListener('beforeunload', ()=>{ if(pushInterval) clearInterval(pushInterval); if(stream){ stream.getTracks().forEach(t=>t.stop()); } });
-      }catch(e){
-        console.error('start-push failed', e);
-        // better diagnostics for common errors
-        let msg = e && e.message ? e.message : String(e);
-        if(e && e.name === 'NotAllowedError') msg = 'Permission denied to use camera. Please allow access.';
-        if(e && e.name === 'NotFoundError') msg = 'No camera found on this device.';
-        if(e && e.name === 'NotReadableError') msg = 'Could not start video source (in use by another app).';
-        if(e && e.name === 'OverconstrainedError') msg = 'Requested camera constraints not satisfied.';
-        document.getElementById('camera-status').innerText = 'Failed to start push: ' + msg;
-      }
-    });
-
-    async function fetchCameras(){
-      const ul = document.getElementById('camera-list');
-      ul.innerHTML = 'Loading...';
-      try{
-        const res = await fetch('/CCTV/feed_status');
-        const json = await res.json();
-        ul.innerHTML = '';
-        // json.feeds is an array of {camera, age, has_frame}
-        (json.feeds || []).forEach(info => {
-          const id = info.camera;
-          const li = document.createElement('li');
-          const left = document.createElement('div');
-          left.style.display = 'flex';
-          left.style.alignItems = 'center';
-          const a = document.createElement('a');
-          a.href = '/CCTV/stream?camera=' + encodeURIComponent(id);
-          a.innerText = id;
-          left.appendChild(a);
-
-          const right = document.createElement('div');
-          right.style.display = 'flex';
-          right.style.alignItems = 'center';
-          if(info.age < STALE_THRESHOLD){
-            const b = document.createElement('span');
-            b.className = 'live-badge';
-            b.innerText = 'LIVE';
-            right.appendChild(b);
-          } else {
-            const stale = document.createElement('span');
-            stale.className = 'status';
-            stale.innerText = 'stale';
-            right.appendChild(stale);
-          }
-
-          li.appendChild(left);
-          li.appendChild(right);
-          ul.appendChild(li);
+        socket.on('broadcasters_list', (data) => {
+            updateCamerasList(data.broadcasters || []);
         });
-      }catch(e){ ul.innerHTML = 'Error loading camera list'; }
-    }
-  </script>
 
-{% endblock %}
+        async function startBroadcast() {
+            if (broadcasting) return;
+            broadcasting = true;
+
+            const cameraName = document.getElementById('cameraName').value || 'cam-' + Date.now();
+            const [width, height] = document.getElementById('resolution').value.split('x').map(Number);
+            const audio = document.getElementById('audioEnable').value === 'true';
+            const status = document.getElementById('bcStatus');
+            const btn = document.getElementById('startBtn');
+
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: width }, height: { ideal: height } },
+                    audio: audio
+                });
+
+                const video = document.getElementById('localVideo');
+                video.srcObject = localStream;
+
+                socket.emit('register_broadcaster', {
+                    camera_id: cameraName,
+                    name: cameraName
+                });
+
+                status.textContent = ` Broadcasting "${cameraName}" - Ready to accept viewers`;
+                status.style.display = 'block';
+                btn.textContent = 'Stop Broadcasting';
+                btn.onclick = stopBroadcast;
+
+                setInterval(() => {
+                    socket.emit('broadcaster_heartbeat', { camera_id: cameraName });
+                }, 5000);
+
+            } catch (e) {
+                status.textContent = ` Error: ${e.message}`;
+                status.classList.remove('info');
+                status.classList.add('error');
+                status.style.display = 'block';
+                broadcasting = false;
+            }
+        }
+
+        function stopBroadcast() {
+            broadcasting = false;
+            if (localStream) {
+                localStream.getTracks().forEach(t => t.stop());
+            }
+            document.getElementById('startBtn').textContent = 'Start Broadcasting';
+            document.getElementById('startBtn').onclick = startBroadcast;
+            document.getElementById('bcStatus').style.display = 'none';
+            socket.emit('disconnect');
+        }
+
+        socket.on('viewer_offer', async (data) => {
+            const { viewer_sid, sdp } = data;
+            console.log(`[Broadcast] Received viewer_offer from ${viewer_sid}`);
+            const peerConnection = createPeerConnection(viewer_sid, true);
+
+            localStream.getTracks().forEach(track => {
+                console.log(`[Broadcast] Adding track: ${track.kind}`);
+                peerConnection.addTrack(track, localStream);
+            });
+
+            await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp }));
+            console.log('[Broadcast] Remote offer set');
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            console.log('[Broadcast] Sending answer');
+
+            socket.emit('broadcaster_answer', {
+                viewer_sid: viewer_sid,
+                sdp: answer.sdp
+            });
+        });
+
+        socket.on('ice_candidate', (data) => {
+            const { from_sid, candidate } = data;
+            console.log(`[Ice] Received from ${from_sid}, for peer ${currentWatchCameraId || 'broadcast'}`);
+            
+            // For viewers: the from_sid is the broadcaster
+            if (currentWatchPeer && from_sid && from_sid !== currentWatchCameraId) {
+                console.log(`[Watch] Adding ICE candidate`);
+                currentWatchPeer.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error('ICE error:', e));
+            }
+            
+            // For broadcasters: check peerConnections
+            const pc = peerConnections[from_sid];
+            if (pc) {
+                console.log(`[Broadcast] Adding ICE candidate`);
+                pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.warn('ICE error:', e));
+            }
+        });
+
+        function createPeerConnection(peerId, isBroadcaster) {
+            const peerConnection = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            });
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('ice_candidate', {
+                        target_sid: peerId,
+                        camera_id: peerId,
+                        candidate: event.candidate
+                    });
+                }
+            };
+
+            peerConnection.onconnectionstatechange = () => {
+                console.log(`[PC-${peerId}] Connection state: ${peerConnection.connectionState}`);
+            };
+
+            peerConnection.oniceconnectionstatechange = () => {
+                console.log(`[PC-${peerId}] ICE state: ${peerConnection.iceConnectionState}`);
+            };
+
+            peerConnection.onsignalingstatechange = () => {
+                console.log(`[PC-${peerId}] Signaling state: ${peerConnection.signalingState}`);
+            };
+
+            if (isBroadcaster) {
+                peerConnection.ontrack = (event) => {
+                    console.log(`[Broadcast] Received track: ${event.track.kind} (should not happen for broadcaster)`);
+                };
+            }
+
+            peerConnections[peerId] = peerConnection;
+            return peerConnection;
+        }
+
+        function updateCamerasList(cameras) {
+            const list = document.getElementById('camerasList');
+            if (!cameras || cameras.length === 0) {
+                list.innerHTML = '<div class="no-cameras"><p> No cameras broadcasting</p><p style="font-size: 0.9rem; color: #666; margin-top: 0.5rem;">Start broadcasting from the Broadcast tab</p></div>';
+                return;
+            }
+
+            list.innerHTML = cameras.map(cid => `
+                <a href="#" class="camera-card" onclick="watchCamera('${cid}'); return false;">
+                    <div class="name">${cid}</div>
+                    <div class="status"><span class="badge"> Live</span></div>
+                </a>
+            `).join('');
+        }
+
+        let remoteStream = null;
+        let currentWatchPeer = null;
+        let currentWatchCameraId = null;
+
+        async function watchCamera(cameraId) {
+            try {
+                // Show video player
+                document.getElementById('videoPlayerModal').style.display = 'block';
+                
+                // Close previous connection if exists
+                if (currentWatchPeer) {
+                    currentWatchPeer.close();
+                }
+
+                const pc = createPeerConnection(cameraId, false);
+                currentWatchPeer = pc;
+                currentWatchCameraId = cameraId;
+
+                pc.ontrack = (event) => {
+                    remoteStream = event.streams[0];
+                    const video = document.getElementById('remoteVideo');
+                    video.srcObject = remoteStream;
+                    console.log(`[Watch] Playing video from ${cameraId}`);
+                };
+
+                pc.addTransceiver('video', { direction: 'recvonly' });
+                pc.addTransceiver('audio', { direction: 'recvonly' });
+
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+
+                socket.emit('viewer_offer', {
+                    camera_id: cameraId,
+                    sdp: offer.sdp
+                });
+            } catch (e) {
+                console.error('[Watch] Error:', e);
+                alert('Failed to connect to camera: ' + e.message);
+            }
+        }
+
+        function closeRemoteVideo() {
+            document.getElementById('videoPlayerModal').style.display = 'none';
+            if (currentWatchPeer) {
+                currentWatchPeer.close();
+                currentWatchPeer = null;
+            }
+            currentWatchCameraId = null;
+            if (remoteStream) {
+                remoteStream.getTracks().forEach(track => track.stop());
+                remoteStream = null;
+            }
+        }
+
+        socket.on('broadcaster_answer', async (data) => {
+            const { sdp } = data;
+            console.log('[Watch] Received broadcaster_answer');
+            if (currentWatchPeer && currentWatchPeer.signalingState === 'have-local-offer') {
+                try {
+                    await currentWatchPeer.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp }));
+                    console.log('[Watch] Answer set successfully');
+                } catch (e) {
+                    console.error('[Watch] Error setting answer:', e);
+                }
+            } else {
+                console.warn('[Watch] No peer connection waiting for answer, or bad state');
+            }
+        });
+    </script>
+</body>
+</html>
