@@ -28,5 +28,6 @@ EXPOSE ${PORT}
 # Default env vars (do NOT store secrets here; pass them at runtime)
 ENV CAMERA_INDEX=0
 
-# Run with gunicorn + eventlet worker for Socket.IO support
-CMD ["gunicorn", "-k", "eventlet", "-w", "1", "app:app", "-b", "0.0.0.0:8001"]
+# Run with gunicorn (sync workers). We removed eventlet/socketio from this simplified build,
+# so use the default sync worker. Keep one worker for low-memory containers; increase if needed.
+CMD ["gunicorn", "-w", "1", "app:app", "-b", "0.0.0.0:8001"]

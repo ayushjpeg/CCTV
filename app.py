@@ -1,8 +1,7 @@
 import os
 import time
 import threading
-from io import BytesIO
-from flask import Flask, render_template, request, redirect, url_for, Response, jsonify
+from flask import Flask, render_template, request, Response, jsonify
 
 # Simple MJPEG push/poll CCTV app (no Socket.IO / WebRTC)
 # - Feeders POST JPEG frames to /CCTV/push_frame with header X-Cam-ID
