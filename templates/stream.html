@@ -5,9 +5,49 @@
 {% block main %}
   <h2>Live Stream{% if request.args.get('camera') %} - {{ request.args.get('camera') }}{% endif %}</h2>
   <div class="stream-wrapper">
-  <img id="video" src="{{ url_for('video_feed') }}?camera={{ request.args.get('camera') }}" alt="Live feed"/>
+    <img id="video" src="{{ url_for('video_feed') }}?camera={{ request.args.get('camera') }}" alt="Live feed"/>
+    <div id="feed-status-msg" style="color: #f88; margin-top: 0.5rem;"></div>
   </div>
   <p>
     <a class="btn" href="{{ url_for('index') }}">Back</a>
   </p>
+  <script>
+    // Poll feed_status and show message if camera not live
+    (function(){
+  const camera = {{ (request.args.get('camera') or '')|tojson }};
+      const img = document.getElementById('video');
+      const msg = document.getElementById('feed-status-msg');
+
+      function setOffline(reason){
+        msg.innerText = reason || 'No feed available for this camera.';
+        img.style.display = 'none';
+      }
+      function setOnline(){
+        msg.innerText = '';
+        img.style.display = '';
+      }
+
+      async function check(){
+        try{
+          const res = await fetch('/CCTV/feed_status');
+          if(!res.ok){ setOffline('Could not check feed status'); return; }
+          const json = await res.json();
+          if(!camera){ setOffline('No camera id specified'); return; }
+          const info = json[camera];
+          if(!info || !info.alive){ setOffline('Feed is not live'); }
+          else { setOnline(); }
+        }catch(e){ setOffline('Error checking feed status'); }
+      }
+
+      // initial check and periodic
+      check();
+      setInterval(check, 3000);
+
+      // if image load fails, show friendly message
+      img.addEventListener('error', ()=>{
+        msg.innerText = 'Stream error or no frames yet.';
+        img.style.display = 'none';
+      });
+    })();
+  </script>
 {% endblock %}

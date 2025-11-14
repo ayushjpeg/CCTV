@@ -24,12 +24,8 @@
 
   <div id="viewer-ui" style="display:none; margin-top:1rem;">
     <h3>Viewer mode</h3>
-    {% if session.logged_in %}
-      <p>Select a camera to watch (active cameras):</p>
-      <ul id="camera-list"></ul>
-    {% else %}
-      <p>You must <a href="{{ url_for('login') }}">login</a> to view cameras.</p>
-    {% endif %}
+    <p>Select a camera to watch (active cameras):</p>
+    <ul id="camera-list"></ul>
   </div>
 
   <script>

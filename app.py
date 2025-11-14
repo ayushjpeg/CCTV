@@ -27,14 +27,9 @@ LAST_FEEDS = {}     # camera_id -> timestamp
 FRAME_LOCK = threading.Lock()
 
 # Simple auth decorator
+# For now authentication is disabled — allow all requests through.
 def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not session.get('logged_in'):
-            # preserve full URL (including query string) so after login we can return to the exact page
-            return redirect(url_for('login', next=request.url))
-        return f(*args, **kwargs)
-    return decorated
+    return f
 
 
 @app.route('/CCTV/')
@@ -47,19 +42,13 @@ def index():
 
 @app.route('/CCTV/login', methods=['GET', 'POST'])
 def login():
-    if request.method == 'POST':
-        if not PASSWORD_HASH:
-            return "Server password not configured. Set CCTV_PASSWORD_HASH env var.", 500
-        password = request.form.get('password', '')
-        if check_password_hash(PASSWORD_HASH, password):
-            session['logged_in'] = True
-            # prefer next from form (POST) then query args
-            next_url = request.form.get('next') or request.args.get('next') or url_for('index')
-            return redirect(next_url)
-        else:
-            return render_template('login.html', error='Invalid password')
+    """Authentication is disabled in this deployment mode — mark session as logged in and redirect.
 
-    return render_template('login.html')
+    This keeps existing flow but does not require a password.
+    """
+    session['logged_in'] = True
+    next_url = request.args.get('next') or request.form.get('next') or url_for('index')
+    return redirect(next_url)
 
 
 @app.route('/CCTV/logout')
@@ -144,6 +133,11 @@ def push_frame():
     with FRAME_LOCK:
         LATEST_FRAMES[camera_id] = data
         LAST_FEEDS[camera_id] = time.time()
+    # log a short message so container logs show feeder activity
+    try:
+        print(f"[push_frame] camera={camera_id} size={len(data)} ts={LAST_FEEDS[camera_id]}")
+    except Exception:
+        pass
 
     return ('', 204)
 
