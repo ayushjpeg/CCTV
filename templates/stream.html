@@ -38,8 +38,27 @@
 
       async function startViewer() {
         try {
-          const socketBase = (function(){ const p = window.location.pathname.split('/').filter(Boolean); return p.length ? ('/' + p[0]) : ''; })();
-          const socket = io({ path: (socketBase || window.CCTV_BASE || '') + '/socket.io' });
+          async function connectSocketWithFallback(){
+            const prefixes = ['', window.CCTV_BASE || '', '/' + (window.location.pathname.split('/').filter(Boolean)[0] || '')];
+            const tried = new Set();
+            for(const pfx of prefixes){
+              const base = (pfx || '').replace(/\/+$|^\s+|\s+$/g, '');
+              const path = (base ? base : '') + '/socket.io';
+              if(tried.has(path)) continue; tried.add(path);
+              try{
+                const s = io({ path: path, transports: ['websocket','polling'] });
+                await new Promise((resolve, reject)=>{
+                  const t = setTimeout(()=>{ s.disconnect(); reject(new Error('timeout')); }, 2000);
+                  s.on('connect', ()=>{ clearTimeout(t); resolve(); });
+                  s.on('connect_error', (err)=>{ clearTimeout(t); s.disconnect(); reject(err); });
+                });
+                console.log('socket connected via', path);
+                return s;
+              }catch(err){ console.warn('socket connect failed for', path, err); }
+            }
+            return io();
+          }
+          const socket = await connectSocketWithFallback();
           socket.on('error', (e) => { console.error('socket error (viewer):', e); });
           // wait for socket to connect before creating offer / sending it
           await new Promise((resolve) => {

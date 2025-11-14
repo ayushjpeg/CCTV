@@ -54,9 +54,29 @@
         preview.srcObject = stream;
   document.getElementById('camera-status').innerText = 'Ready — streaming as ' + camId;
 
-  // connect to Socket.IO signalling (use correct path when behind a proxy)
-  const socketBase = (function(){ const p = window.location.pathname.split('/').filter(Boolean); return p.length ? ('/' + p[0]) : ''; })();
-  const socket = io({ path: (socketBase || window.CCTV_BASE || '') + '/socket.io' });
+        // helper: try multiple socket.io paths (works both locally and when app is mounted under /CCTV)
+        async function connectSocketWithFallback(){
+          const prefixes = ['', window.CCTV_BASE || '', '/' + (window.location.pathname.split('/').filter(Boolean)[0] || '')];
+          const tried = new Set();
+          for(const pfx of prefixes){
+            const base = (pfx || '').replace(/\/+$|^\s+|\s+$/g, '');
+            const path = (base ? base : '') + '/socket.io';
+            if(tried.has(path)) continue; tried.add(path);
+            try{
+              const s = io({ path: path, transports: ['websocket','polling'] });
+              await new Promise((resolve, reject)=>{
+                const t = setTimeout(()=>{ s.disconnect(); reject(new Error('timeout')); }, 2000);
+                s.on('connect', ()=>{ clearTimeout(t); resolve(); });
+                s.on('connect_error', (err)=>{ clearTimeout(t); s.disconnect(); reject(err); });
+              });
+              console.log('socket connected via', path);
+              return s;
+            }catch(err){ console.warn('socket connect failed for', path, err); }
+          }
+          // fallback to default
+          return io();
+        }
+        const socket = await connectSocketWithFallback();
         socket.on('connect', () => {
           console.log('publisher socket connected', socket.id);
           // register publisher only after socket has connected
