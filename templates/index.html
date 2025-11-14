@@ -241,8 +241,6 @@
         function createPeerConnection(peerId, isBroadcaster) {
             const peerConnection = new RTCPeerConnection({
                 iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
                     // YOUR OWN TURN SERVER
                     {
                         urls: 'turn:122.170.238.244:3478',
