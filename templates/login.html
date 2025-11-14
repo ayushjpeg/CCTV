@@ -13,6 +13,8 @@
       <div class="error">{{ error }}</div>
       {% endif %}
       <form method="post" action="{{ url_for('login') }}">
+        {# preserve destination after login (next may be present in the query string) #}
+        <input type="hidden" name="next" value="{{ request.args.get('next') }}">
         <input type="password" name="password" placeholder="Enter password" autofocus>
         <button type="submit">Unlock</button>
       </form>

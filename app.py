@@ -31,7 +31,8 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get('logged_in'):
-            return redirect(url_for('login', next=request.path))
+            # preserve full URL (including query string) so after login we can return to the exact page
+            return redirect(url_for('login', next=request.url))
         return f(*args, **kwargs)
     return decorated
 
@@ -52,7 +53,8 @@ def login():
         password = request.form.get('password', '')
         if check_password_hash(PASSWORD_HASH, password):
             session['logged_in'] = True
-            next_url = request.args.get('next') or url_for('index')
+            # prefer next from form (POST) then query args
+            next_url = request.form.get('next') or request.args.get('next') or url_for('index')
             return redirect(next_url)
         else:
             return render_template('login.html', error='Invalid password')
