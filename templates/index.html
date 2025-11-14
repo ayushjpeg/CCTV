@@ -75,8 +75,8 @@
                             <label>Video Resolution</label>
                             <select id="resolution">
                                 <option value="320x240">Low (320x240)</option>
-                                <option value="640x480">Medium (640x480)</option>
-                                <option value="1280x720" selected>High (720p)</option>
+                                <option value="640x480" selected>Medium (640x480) - Recommended</option>
+                                <option value="1280x720">High (720p)</option>
                                 <option value="1920x1080">Very High (1080p)</option>
                             </select>
                         </div>
@@ -203,6 +203,10 @@
             // Modify SDP to prefer VP8 codec (better compatibility)
             answer.sdp = preferCodec(answer.sdp, 'video', 'VP8');
             answer.sdp = preferCodec(answer.sdp, 'audio', 'opus');
+            
+            // Lower bitrate for better performance through TURN
+            answer.sdp = setBitrate(answer.sdp, 'video', 500); // 500 kbps max
+            answer.sdp = setBitrate(answer.sdp, 'audio', 32);  // 32 kbps max
             
             await peerConnection.setLocalDescription(answer);
             console.log('[Broadcast] Sending answer');
@@ -480,6 +484,32 @@
             const reordered = [...codecLines, ...mediaPayloads.filter(p => !codecLines.includes(p))];
             parts.splice(3, mediaPayloads.length, ...reordered);
             lines[mLineIndex] = parts.join(' ');
+
+            return lines.join('\r\n');
+        }
+
+        // Helper function to set bandwidth limit in SDP
+        function setBitrate(sdp, kind, bitrate) {
+            const lines = sdp.split('\r\n');
+            const mLineIndex = lines.findIndex(line => line.startsWith(`m=${kind}`));
+            if (mLineIndex === -1) return sdp;
+
+            // Find or create b=AS line
+            let bLineIndex = -1;
+            for (let i = mLineIndex + 1; i < lines.length; i++) {
+                if (lines[i].startsWith('m=')) break;
+                if (lines[i].startsWith('b=AS:')) {
+                    bLineIndex = i;
+                    break;
+                }
+            }
+
+            const bLine = `b=AS:${bitrate}`;
+            if (bLineIndex !== -1) {
+                lines[bLineIndex] = bLine;
+            } else {
+                lines.splice(mLineIndex + 1, 0, bLine);
+            }
 
             return lines.join('\r\n');
         }
