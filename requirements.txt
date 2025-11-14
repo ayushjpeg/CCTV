@@ -3,5 +3,3 @@ werkzeug
 opencv-python-headless
 gunicorn
 requests
-flask-socketio
-eventlet

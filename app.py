@@ -1,269 +1,136 @@
 import os
 import time
 import threading
-from functools import wraps
 from io import BytesIO
-from flask import Flask, render_template, request, redirect, url_for, session, Response, abort, jsonify
-from flask_socketio import SocketIO
-from werkzeug.security import check_password_hash
-from streams import Camera
+from flask import Flask, render_template, request, redirect, url_for, Response, jsonify
 
-# Configure Flask to serve static under /CCTV so nginx can proxy /CCTV/ -> app
+# Simple MJPEG push/poll CCTV app (no Socket.IO / WebRTC)
+# - Feeders POST JPEG frames to /CCTV/push_frame with header X-Cam-ID
+# - Server keeps latest frame per camera in memory
+# - Viewers open /CCTV/video_feed?camera=<id> to receive an MJPEG stream
+
 app = Flask(__name__, static_url_path='/CCTV/static', static_folder='static')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.secret_key = os.environ.get('CCTV_SECRET_KEY', os.urandom(24))
 
-# Password hash must be provided via env var CCTV_PASSWORD_HASH (use create_password.py to generate)
-PASSWORD_HASH = os.environ.get('CCTV_PASSWORD_HASH')
-
-# Feed key for the feeder laptop (set this on server and feeder)
-FEED_KEY = os.environ.get('CCTV_FEED_KEY')
-
-# Camera index or device path (fallback if no feeder pushing frames)
-CAMERA_INDEX = os.environ.get('CAMERA_INDEX', '0')
-
-# In-memory frame buffers (latest pushed frame per camera_id) and synchronization
 LATEST_FRAMES = {}  # camera_id -> bytes
 LAST_FEEDS = {}     # camera_id -> timestamp
 FRAME_LOCK = threading.Lock()
-# threshold in seconds after which a camera is considered stale and removed
 STALE_THRESHOLD = int(os.environ.get('CCTV_STALE_THRESHOLD', '5'))
 
-# Socket.IO for WebRTC signalling
-socketio = SocketIO(app, cors_allowed_origins='*')
-
-# publisher registry: camera_id -> publisher sid
-PUBLISHERS = {}
-# reverse map: sid -> camera_id
-SID_TO_CAMERA = {}
-
-# Simple auth decorator
-# For now authentication is disabled — allow all requests through.
-def login_required(f):
-    return f
-
-
+# Routes
 @app.route('/CCTV/')
 def index():
-    """Landing page: lets the user choose Camera (act as feeder) or Viewer (see cameras).
-    Viewer will be directed to login if not authenticated.
-    """
-    return render_template('index.html')
-
-
-@app.route('/CCTV/login', methods=['GET', 'POST'])
-def login():
-    """Authentication is disabled in this deployment mode — mark session as logged in and redirect.
-
-    This keeps existing flow but does not require a password.
-    """
-    session['logged_in'] = True
-    next_url = request.args.get('next') or request.form.get('next') or url_for('index')
-    return redirect(next_url)
-
-
-@app.route('/CCTV/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
+    return render_template('index.html', STALE_THRESHOLD=STALE_THRESHOLD)
 
 
 @app.route('/CCTV/stream')
-@login_required
 def stream_page():
-    return render_template('stream.html')
-
-
-def gen(camera: Camera, camera_id: str = None):
-    """Stream generator. If camera_id is provided and a pushed frame exists for that id,
-    yield the pushed frame; otherwise fall back to the provided local camera.
-    """
-    while True:
-        frame = None
-
-        if camera_id:
-            with FRAME_LOCK:
-                frame = LATEST_FRAMES.get(camera_id)
-
-        # Otherwise fall back to local camera
-        if frame is None and camera is not None:
-            frame = camera.get_frame()
-
-        if frame is None:
-            time.sleep(0.1)
-            continue
-
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
-
-# Video feed endpoint
-@app.route('/CCTV/video_feed')
-@login_required
-def video_feed():
-    # Stream a specific camera. Request should include ?camera=<id>
-    camera_id = request.args.get('camera')
-
-    cam = None
-    # If no camera_id provided, use the server's local camera
-    if not camera_id:
-        cam = Camera(camera_index=CAMERA_INDEX)
-
-    return Response(gen(cam, camera_id=camera_id), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return render_template('stream.html', STALE_THRESHOLD=STALE_THRESHOLD)
 
 
 @app.route('/CCTV/push_frame', methods=['POST'])
 def push_frame():
-    """Endpoint for feeder devices to POST JPEG frames.
+    """Accept a JPEG frame POST from a feeder.
 
-    Expected identification: header 'X-Cam-ID' or form/query 'camera_id'.
-    If CCTV_FEED_KEY is set on the server, the feeder must provide header 'X-Feed-Key' or form 'feed_key'.
-    Accepts multipart file 'frame' or raw JPEG body.
+    Headers:
+      X-Cam-ID: identifier for the camera
+    Body:
+      raw JPEG bytes (content-type image/jpeg)
     """
-    # Validate feed key only if server requires one
-    if FEED_KEY:
-        provided = request.headers.get('X-Feed-Key') or request.form.get('feed_key')
-        if not provided or provided != FEED_KEY:
-            return ('Forbidden', 403)
-
-    # Determine camera id
-    camera_id = request.headers.get('X-Cam-ID') or request.form.get('camera_id') or request.args.get('camera')
-    if not camera_id:
-        return ('camera_id required (header X-Cam-ID or field camera_id)', 400)
-
-    data = None
-    f = request.files.get('frame') if hasattr(request, 'files') else None
-    if f:
-        data = f.read()
-    else:
-        data = request.get_data()
-
+    cam = request.headers.get('X-Cam-ID') or request.args.get('camera') or request.form.get('camera')
+    if not cam:
+        return ('Missing X-Cam-ID header or camera param', 400)
+    data = request.get_data()
     if not data:
-        return ('No frame', 400)
-
+        return ('Empty frame', 400)
     with FRAME_LOCK:
-        LATEST_FRAMES[camera_id] = data
-        LAST_FEEDS[camera_id] = time.time()
-    # log a short message so container logs show feeder activity
-    try:
-        print(f"[push_frame] camera={camera_id} size={len(data)} ts={LAST_FEEDS[camera_id]}")
-    except Exception:
-        pass
-
+        LATEST_FRAMES[cam] = data
+        LAST_FEEDS[cam] = time.time()
     return ('', 204)
+
+
+def gen(camera_id):
+    boundary = b'--frame\r\n'
+    while True:
+        frame = None
+        with FRAME_LOCK:
+            frame = LATEST_FRAMES.get(camera_id)
+        if frame:
+            yield boundary
+            yield b'Content-Type: image/jpeg\r\n'
+            yield b'Content-Length: ' + str(len(frame)).encode() + b'\r\n\r\n'
+            yield frame
+            yield b'\r\n'
+        else:
+            # no frame yet - send a small pause
+            time.sleep(0.2)
+            continue
+        # throttle to ~30fps max if frames are updated faster
+        time.sleep(1 / 30.0)
+
+
+@app.route('/CCTV/video_feed')
+def video_feed():
+    camera = request.args.get('camera')
+    if not camera:
+        return ('camera query param required', 400)
+    return Response(gen(camera), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @app.route('/CCTV/feed_status')
 def feed_status():
-    """Return JSON status about all feeders/cameras.
-
-    Returns a dict camera_id -> { age, alive }
-    """
+    """Return current feeds and ages in seconds."""
     now = time.time()
-    out = {}
     with FRAME_LOCK:
-        # Remove stale entries immediately so viewer lists stay clean
-        to_delete = [cam_id for cam_id, ts in LAST_FEEDS.items() if now - ts > STALE_THRESHOLD]
-        for cam_id in to_delete:
-            LAST_FEEDS.pop(cam_id, None)
-            LATEST_FRAMES.pop(cam_id, None)
-        for cam_id, ts in LAST_FEEDS.items():
-            age = now - ts
-            out[cam_id] = {
-                'age': age,
-                'alive': age <= STALE_THRESHOLD
-            }
-    return jsonify(out)
+        feeds = []
+        for cam, ts in LAST_FEEDS.items():
+            feeds.append({'camera': cam, 'age': now - ts, 'has_frame': cam in LATEST_FRAMES})
+    return jsonify({'feeds': feeds})
 
 
-# ----------------------
-# Socket.IO signalling
-# ----------------------
-
-@socketio.on('register-publisher')
-def handle_register_publisher(data):
-    camera_id = data.get('camera_id')
-    if not camera_id:
-        return
-    PUBLISHERS[camera_id] = request.sid
-    SID_TO_CAMERA[request.sid] = camera_id
-    # mark the publisher as recently active so /CCTV/feed_status shows it as live
+@app.route('/CCTV/debug_feeds')
+def debug_feeds():
     with FRAME_LOCK:
-        LAST_FEEDS[camera_id] = time.time()
-    print(f"[socket] publisher registered camera={camera_id} sid={request.sid}")
+        return jsonify({ 'last_feeds': {k: LAST_FEEDS.get(k) for k in LAST_FEEDS} })
 
 
-
-@socketio.on('publisher-heartbeat')
-def handle_publisher_heartbeat(data):
-    """Heartbeat from browser-based publisher to indicate it's still online.
-
-    The client should emit this periodically so the server's /CCTV/feed_status
-    remains accurate for WebRTC publishers (which don't POST frames).
-    """
-    camera_id = data.get('camera_id')
-    if not camera_id:
-        return
+@app.route('/CCTV/clear_state', methods=['POST'])
+def http_clear_state():
+    remote = request.remote_addr
+    if remote not in ('127.0.0.1', '::1', 'localhost'):
+        return ('Forbidden', 403)
     with FRAME_LOCK:
-        LAST_FEEDS[camera_id] = time.time()
+        LATEST_FRAMES.clear()
+        LAST_FEEDS.clear()
+    return ('', 204)
 
 
-@socketio.on('viewer-offer')
-def handle_viewer_offer(data):
-    camera_id = data.get('camera_id')
-    sdp = data.get('sdp')
-    print(f"[socket] viewer-offer for camera={camera_id} from sid={request.sid}")
-    publisher_sid = PUBLISHERS.get(camera_id)
-    if not publisher_sid:
-        socketio.emit('error', {'msg': 'no publisher for camera'}, to=request.sid)
-        return
-    # forward viewer offer to publisher
-    socketio.emit('viewer-offer', {'viewer_sid': request.sid, 'sdp': sdp}, to=publisher_sid)
-    print(f"[socket] forwarded viewer-offer for camera={camera_id} to publisher_sid={publisher_sid}")
-
-
-@socketio.on('publisher-answer')
-def handle_publisher_answer(data):
-    viewer_sid = data.get('viewer_sid')
-    sdp = data.get('sdp')
-    print(f"[socket] publisher-answer for viewer_sid={viewer_sid} from sid={request.sid}")
-    if not viewer_sid or not sdp:
-        return
-    socketio.emit('publisher-answer', {'sdp': sdp}, to=viewer_sid)
-
-
-@socketio.on('ice-candidate')
-def handle_ice(data):
-    # if 'to' provided, forward to that sid; otherwise route from viewer -> publisher by camera_id
-    to = data.get('to')
-    candidate = data.get('candidate')
-    camera_id = data.get('camera_id')
-    if to:
-        socketio.emit('ice-candidate', {'candidate': candidate, 'from': request.sid}, to=to)
-        print(f"[socket] forwarded ICE to sid={to} from sid={request.sid}")
-    else:
-        # viewer -> publisher
-        publisher_sid = PUBLISHERS.get(camera_id)
-        if publisher_sid:
-            socketio.emit('ice-candidate', {'candidate': candidate, 'from': request.sid}, to=publisher_sid)
-            print(f"[socket] forwarded ICE for camera={camera_id} to publisher_sid={publisher_sid} from sid={request.sid}")
-
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    sid = request.sid
-    cam = SID_TO_CAMERA.pop(sid, None)
-    if cam:
-        PUBLISHERS.pop(cam, None)
-        print(f"[socket] publisher disconnected camera={cam} sid={sid}")
-
-
-# Simple health endpoint
-@app.route('/CCTV/health')
-def health():
-    return 'OK', 200
+def _janitor_loop():
+    print('[server] janitor thread started')
+    while True:
+        try:
+            now = time.time()
+            removed = False
+            with FRAME_LOCK:
+                to_delete = [cam for cam, ts in LAST_FEEDS.items() if now - ts > STALE_THRESHOLD]
+                for cam in to_delete:
+                    LAST_FEEDS.pop(cam, None)
+                    LATEST_FRAMES.pop(cam, None)
+                    removed = True
+            if removed:
+                print('[server] janitor removed stale feeds:', to_delete)
+        except Exception as e:
+            print('[server] janitor error', e)
+        time.sleep(1.0)
 
 
 if __name__ == '__main__':
-    # for local dev only
-    socketio.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8000)), debug=True)
+    # clean start
+    with FRAME_LOCK:
+        LATEST_FRAMES.clear()
+        LAST_FEEDS.clear()
+    # start janitor
+    t = threading.Thread(target=_janitor_loop, daemon=True)
+    t.start()
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8000)), debug=True)

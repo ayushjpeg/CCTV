@@ -6,7 +6,7 @@
   <div class="card p-6">
     <div class="flex items-center justify-between">
       <h2 class="text-2xl font-semibold">CCTV</h2>
-      <div class="text-sm text-gray-400">Mobile-friendly • WebRTC</div>
+    <div class="text-sm text-gray-400">Mobile-friendly • MJPEG push/poll</div>
     </div>
     <p class="mt-3 text-gray-300">Select a mode below</p>
     <div class="mode-row mt-4">
@@ -21,11 +21,12 @@
       <label class="block text-sm text-gray-300 mt-3">FPS</label>
       <input id="camera-fps" type="number" value="30" min="1" max="60" class="w-24 mt-1 p-2 rounded bg-slate-900 text-white">
       <div class="mt-4">
-        <button id="start-camera" class="btn px-4 py-2">Start streaming</button>
+        <div class="flex gap-3">
+          <button id="start-push" class="btn secondary px-4 py-2">Start simple (MJPEG) push</button>
+        </div>
       </div>
       <video id="preview" class="preview mt-4 rounded shadow-sm" autoplay playsinline muted></video>
       <div class="controls mt-3 flex items-center gap-3">
-        <button id="toggle-mic" class="btn secondary">Mic Off</button>
         <span id="camera-status" class="text-sm text-gray-400"></span>
       </div>
     </div>
@@ -38,104 +39,85 @@
   </div>
 
   <script>
+    const STALE_THRESHOLD = {{ STALE_THRESHOLD | default(5) }};
     const cameraBtn = document.getElementById('mode-camera');
     const viewerBtn = document.getElementById('mode-viewer');
     const cameraUI = document.getElementById('camera-ui');
     const viewerUI = document.getElementById('viewer-ui');
     cameraBtn.addEventListener('click', ()=>{ cameraUI.style.display='block'; viewerUI.style.display='none'; });
-    viewerBtn.addEventListener('click', ()=>{ viewerUI.style.display='block'; cameraUI.style.display='none'; fetchCameras(); });
+    viewerBtn.addEventListener('click', async ()=>{ viewerUI.style.display='block'; cameraUI.style.display='none'; fetchCameras(); });
 
     // Camera capture & push
     let stream, intervalHandle;
-    document.getElementById('start-camera').addEventListener('click', async ()=>{
-    const camId = document.getElementById('camera-id').value || ('cam-' + Math.random().toString(36).slice(2,7));
+
+  // Simple MJPEG push publisher
+    let pushInterval = null;
+    document.getElementById('start-push').addEventListener('click', async ()=>{
+      const camId = document.getElementById('camera-id').value || ('cam-' + Math.random().toString(36).slice(2,7));
+      const fps = Math.max(1, Math.min(30, parseInt(document.getElementById('camera-fps').value || '15')));
+      try{
+        const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        stream = s;
         const preview = document.getElementById('preview');
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         preview.srcObject = stream;
-  document.getElementById('camera-status').innerText = 'Ready — streaming as ' + camId;
+        // wait for the video element to be ready and playing before capturing frames
+        await new Promise((resolve, reject) => {
+          const onCanPlay = () => { preview.removeEventListener('canplay', onCanPlay); resolve(); };
+          const onError = (ev) => { preview.removeEventListener('error', onError); reject(new Error('Video element error')); };
+          preview.addEventListener('canplay', onCanPlay);
+          preview.addEventListener('error', onError);
+          // try to play (some browsers require an explicit play to start rendering)
+          preview.play().catch(()=>{});
+          // timeout if video doesn't become ready
+          setTimeout(()=>{ preview.removeEventListener('canplay', onCanPlay); reject(new Error('Timed out waiting for video feed')); }, 3000);
+        });
 
-        // helper: try multiple socket.io paths (works both locally and when app is mounted under /CCTV)
-        async function connectSocketWithFallback(){
-          const prefixes = ['', window.CCTV_BASE || '', '/' + (window.location.pathname.split('/').filter(Boolean)[0] || '')];
-          const tried = new Set();
-          for(const pfx of prefixes){
-            const base = (pfx || '').replace(/\/+$|^\s+|\s+$/g, '');
-            const path = (base ? base : '') + '/socket.io';
-            if(tried.has(path)) continue; tried.add(path);
-            try{
-              const s = io({ path: path, transports: ['websocket','polling'] });
-              await new Promise((resolve, reject)=>{
-                const t = setTimeout(()=>{ s.disconnect(); reject(new Error('timeout')); }, 2000);
-                s.on('connect', ()=>{ clearTimeout(t); resolve(); });
-                s.on('connect_error', (err)=>{ clearTimeout(t); s.disconnect(); reject(err); });
-              });
-              console.log('socket connected via', path);
-              return s;
-            }catch(err){ console.warn('socket connect failed for', path, err); }
-          }
-          // fallback to default
-          return io();
+        document.getElementById('camera-status').innerText = 'Pushing frames as ' + camId + ' (' + fps + 'fps)';
+
+        // create a hidden canvas to draw frames
+        const videoTrack = stream.getVideoTracks()[0];
+        const settings = videoTrack.getSettings ? videoTrack.getSettings() : {};
+        const w = settings.width || preview.videoWidth || 640;
+        const h = settings.height || preview.videoHeight || 480;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+
+        async function pushFrame(){
+          try{
+            // draw the currently rendered video frame
+            ctx.drawImage(preview, 0, 0, canvas.width, canvas.height);
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.7));
+            if(!blob) return;
+            // POST as raw JPEG body with header X-Cam-ID so server stores it
+            fetch('/CCTV/push_frame', {
+              method: 'POST',
+              headers: {
+                'X-Cam-ID': camId
+              },
+              body: blob,
+            }).catch(e=> console.warn('push_frame failed', e));
+          }catch(e){ console.error('pushFrame error', e); }
         }
-        const socket = await connectSocketWithFallback();
-        socket.on('connect', () => {
-          console.log('publisher socket connected', socket.id);
-          // register publisher only after socket has connected
-          socket.emit('register-publisher', { camera_id: camId });
-          // send periodic heartbeat so the server knows this publisher is alive
-          heartbeatInterval = setInterval(() => {
-            socket.emit('publisher-heartbeat', { camera_id: camId });
-          }, 2000);
-        });
-        socket.on('error', (e) => { console.error('socket error (publisher):', e); });
-        let heartbeatInterval = null;
 
-  const pcs = {}; // viewer_sid -> RTCPeerConnection
+        // start interval
+        pushInterval = setInterval(pushFrame, 1000 / fps);
+        // also push one immediately
+        pushFrame();
 
-        socket.on('viewer-offer', async (data) => {
-          const viewer_sid = data.viewer_sid;
-          const sdp = data.sdp;
-          console.log('viewer-offer from', viewer_sid);
-          const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-          pcs[viewer_sid] = pc;
-
-          // add local tracks
-          stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
-          pc.onicecandidate = (e) => {
-            if (e.candidate) {
-              socket.emit('ice-candidate', { to: viewer_sid, candidate: e.candidate });
-            }
-          };
-
-          try {
-            await pc.setRemoteDescription({ type: 'offer', sdp: sdp });
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-              socket.emit('publisher-answer', { viewer_sid: viewer_sid, sdp: pc.localDescription.sdp });
-              console.log('sent publisher-answer to viewer', viewer_sid);
-          } catch (e) {
-            console.error('failed to handle viewer-offer', e);
-          }
-        });
-
-        socket.on('ice-candidate', (data) => {
-          const from = data.from;
-          const candidate = data.candidate;
-          const pc = pcs[from];
-          if (pc) pc.addIceCandidate(candidate).catch(e => console.error('addIce failed', e));
-        });
-        socket.on('disconnect', () => { console.log('publisher socket disconnected'); });
-        // toggle mic button (update label & track.enabled reliably)
-        document.getElementById('toggle-mic').addEventListener('click', ()=>{
-          if(!stream) return;
-          const audioTracks = stream.getAudioTracks();
-          if(!audioTracks.length) return;
-          const enabled = !audioTracks[0].enabled;
-          audioTracks.forEach(t => t.enabled = enabled);
-          document.getElementById('toggle-mic').innerText = enabled ? 'Mic On' : 'Mic Off';
-        });
-    // clear heartbeat when page unloads
-    window.addEventListener('beforeunload', () => { if (heartbeatInterval) clearInterval(heartbeatInterval); });
+        // stop on unload
+        window.addEventListener('beforeunload', ()=>{ if(pushInterval) clearInterval(pushInterval); if(stream){ stream.getTracks().forEach(t=>t.stop()); } });
+      }catch(e){
+        console.error('start-push failed', e);
+        // better diagnostics for common errors
+        let msg = e && e.message ? e.message : String(e);
+        if(e && e.name === 'NotAllowedError') msg = 'Permission denied to use camera. Please allow access.';
+        if(e && e.name === 'NotFoundError') msg = 'No camera found on this device.';
+        if(e && e.name === 'NotReadableError') msg = 'Could not start video source (in use by another app).';
+        if(e && e.name === 'OverconstrainedError') msg = 'Requested camera constraints not satisfied.';
+        document.getElementById('camera-status').innerText = 'Failed to start push: ' + msg;
+      }
     });
 
     async function fetchCameras(){
@@ -145,7 +127,9 @@
         const res = await fetch('/CCTV/feed_status');
         const json = await res.json();
         ul.innerHTML = '';
-        for(const id in json){
+        // json.feeds is an array of {camera, age, has_frame}
+        (json.feeds || []).forEach(info => {
+          const id = info.camera;
           const li = document.createElement('li');
           const left = document.createElement('div');
           left.style.display = 'flex';
@@ -158,7 +142,7 @@
           const right = document.createElement('div');
           right.style.display = 'flex';
           right.style.alignItems = 'center';
-          if(json[id].alive){
+          if(info.age < STALE_THRESHOLD){
             const b = document.createElement('span');
             b.className = 'live-badge';
             b.innerText = 'LIVE';
@@ -173,7 +157,7 @@
           li.appendChild(left);
           li.appendChild(right);
           ul.appendChild(li);
-        }
+        });
       }catch(e){ ul.innerHTML = 'Error loading camera list'; }
     }
   </script>
