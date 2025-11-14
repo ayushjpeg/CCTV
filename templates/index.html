@@ -197,7 +197,13 @@
 
             await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp }));
             console.log('[Broadcast] Remote offer set');
+            
             const answer = await peerConnection.createAnswer();
+            
+            // Modify SDP to prefer VP8 codec (better compatibility)
+            answer.sdp = preferCodec(answer.sdp, 'video', 'VP8');
+            answer.sdp = preferCodec(answer.sdp, 'audio', 'opus');
+            
             await peerConnection.setLocalDescription(answer);
             console.log('[Broadcast] Sending answer');
 
@@ -396,6 +402,11 @@
                 });
 
                 const offer = await pc.createOffer();
+                
+                // Modify SDP to prefer VP8 codec (better compatibility across devices)
+                offer.sdp = preferCodec(offer.sdp, 'video', 'VP8');
+                offer.sdp = preferCodec(offer.sdp, 'audio', 'opus');
+                
                 await pc.setLocalDescription(offer);
 
                 console.log(`[Watch] Sending offer for camera ${cameraId}`);
@@ -436,6 +447,42 @@
                 console.warn('[Watch] No peer connection waiting for answer, or bad state');
             }
         });
+
+        // Helper function to prefer specific codec in SDP
+        function preferCodec(sdp, kind, codec) {
+            const lines = sdp.split('\r\n');
+            const mLineIndex = lines.findIndex(line => line.startsWith(`m=${kind}`));
+            if (mLineIndex === -1) return sdp;
+
+            const codecLines = [];
+            const otherLines = [];
+            
+            for (let i = mLineIndex + 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (line.startsWith('m=')) break;
+                
+                if (line.includes(`rtpmap:`) && line.toLowerCase().includes(codec.toLowerCase())) {
+                    const payloadType = line.match(/rtpmap:(\d+)/)?.[1];
+                    if (payloadType) {
+                        codecLines.push(payloadType);
+                    }
+                }
+            }
+
+            if (codecLines.length === 0) return sdp;
+
+            // Reorder payload types in m= line
+            const mLine = lines[mLineIndex];
+            const parts = mLine.split(' ');
+            const mediaPayloads = parts.slice(3);
+            
+            // Put preferred codec first
+            const reordered = [...codecLines, ...mediaPayloads.filter(p => !codecLines.includes(p))];
+            parts.splice(3, mediaPayloads.length, ...reordered);
+            lines[mLineIndex] = parts.join(' ');
+
+            return lines.join('\r\n');
+        }
     </script>
 </body>
 </html>
