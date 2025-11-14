@@ -1,0 +1,131 @@
+{% extends "layout.html" %}
+
+{% block title %}Live Stream{% endblock %}
+
+{% block main %}
+  <h2>Live Stream{% if request.args.get('camera') %} - {{ request.args.get('camera') }}{% endif %}</h2>
+  <div class="stream-wrapper card p-4" data-camera="{{ request.args.get('camera') or '' }}">
+    <video id="video" autoplay playsinline muted class="rounded shadow-sm bg-black" style="width:100%; display:block;"></video>
+    <audio id="audio" autoplay style="display:none"></audio>
+    <div class="controls mt-3 flex items-center gap-3">
+      <button id="viewer-mute" class="btn secondary">Unmute</button>
+      <span id="feed-status-msg" class="text-sm text-red-400"></span>
+    </div>
+  </div>
+  <p>
+    <a class="btn" href="{{ url_for('index') }}">Back</a>
+  </p>
+  <script>
+  // WebRTC viewer using Socket.IO signaling; falls back to MJPEG if signaling fails
+  (function(){
+    const camera = document.querySelector('.stream-wrapper').dataset.camera || '';
+    const videoEl = document.getElementById('video');
+    const audioEl = document.getElementById('audio');
+    const msg = document.getElementById('feed-status-msg');
+    let viewerSocket = null;
+    let pc = null;
+
+    function setOffline(reason){ msg.innerText = reason || 'No feed available for this camera.'; videoEl.style.display = 'none'; }
+    function setOnline(){ msg.innerText = ''; videoEl.style.display = 'block'; }
+
+    async function startViewer() {
+      try{
+        if(!viewerSocket){
+          const baseUrl = (window.CCTV_BASE || window.location.origin);
+          viewerSocket = io(baseUrl, { transports: ['websocket','polling'] });
+        }
+        const socket = viewerSocket;
+        if(!socket.connected){
+          await new Promise((resolve)=> socket.on('connect', resolve));
+        }
+
+        pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+
+        const audioStream = new MediaStream();
+        audioEl.srcObject = audioStream;
+
+        pc.ontrack = (e)=>{
+          try{
+            console.log('viewer ontrack', e.track.kind);
+            if(e.track.kind === 'video'){
+              videoEl.srcObject = e.streams[0];
+            } else if(e.track.kind === 'audio'){
+              audioStream.addTrack(e.track);
+            }
+          }catch(err){ console.warn('ontrack', err); }
+        };
+
+        pc.onicecandidate = (e)=>{ if(e.candidate) socket.emit('ice_candidate', { camera: camera, candidate: e.candidate }); };
+
+        socket.on('publisher_answer', async (data)=>{
+          console.log('viewer received publisher_answer');
+          if(data && data.sdp){ await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp }); }
+        });
+
+        socket.on('ice_candidate', async (data)=>{ if(data && data.candidate){ try{ await pc.addIceCandidate(data.candidate); }catch(e){ console.warn('addIce failed', e); } } });
+
+        // request an offer from publisher
+        try{
+          pc.addTransceiver('video', { direction: 'recvonly' });
+          pc.addTransceiver('audio', { direction: 'recvonly' });
+        }catch(e){}
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        console.log('viewer sending viewer_offer for', camera);
+        socket.emit('viewer_offer', { camera: camera, sdp: pc.localDescription.sdp });
+
+        // fallback to MJPEG if no remote track within 4s
+        const fallback = setTimeout(()=>{
+          console.warn('fallback: no remote track within 4s');
+          try{ if(pc){ pc.close(); pc = null; } }catch(e){}
+          const img = document.createElement('img');
+          img.src = '/CCTV/video_feed?camera=' + encodeURIComponent(camera) + '&_t=' + Date.now();
+          img.className = videoEl.className;
+          videoEl.style.display = 'none';
+          videoEl.parentNode.insertBefore(img, videoEl.nextSibling);
+          setOffline('Using MJPEG fallback');
+        }, 4000);
+
+        // when remote track arrives, cancel fallback
+        const origOnTrack = pc.ontrack;
+        pc.ontrack = (e)=>{ try{ clearTimeout(fallback); setOnline(); }catch(e){} if(origOnTrack) origOnTrack(e); };
+
+      }catch(e){ console.error('startViewer error', e); setOffline('Failed to start viewer'); }
+    }
+
+    // connect to socket.io and listen for publishers
+    if(!viewerSocket){
+      const baseUrl = (window.CCTV_BASE || window.location.origin);
+      viewerSocket = io(baseUrl, { transports: ['websocket','polling'] });
+    }
+    viewerSocket.on('publishers_update', (data)=>{
+      const pubs = data.publishers || [];
+      console.log('publishers_update:', pubs);
+      if(pubs.includes(camera) && !pc){
+        console.log('camera is now live, starting viewer');
+        startViewer();
+      }
+    });
+
+    // initial check: if camera is already registered, start viewer
+    async function check(){
+      try{
+        const res = await fetch('/CCTV/feed_status');
+        const json = await res.json();
+        const info = (json.feeds || []).find(f => f.camera === camera);
+        console.log('feed_status check:', json.feeds, 'looking for', camera, 'found:', info);
+        if(info && !pc){ 
+          console.log('camera already live, starting viewer');
+          setOnline(); 
+          startViewer(); 
+        } else if(!info) {
+          console.log('camera not in feed_status yet, waiting for publishers_update');
+        }
+      }catch(e){ console.error('feed_status check failed', e); }
+    }
+
+    check();
+  })();
+  </script>
+{% endblock %}
