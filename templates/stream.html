@@ -80,7 +80,7 @@
           console.warn('fallback: no remote track within 4s');
           try{ if(pc){ pc.close(); pc = null; } }catch(e){}
           const img = document.createElement('img');
-          img.src = '/CCTV/video_feed?camera=' + encodeURIComponent(camera) + '&_t=' + Date.now();
+          img.src = '/video_feed?camera=' + encodeURIComponent(camera) + '&_t=' + Date.now();
           img.className = videoEl.className;
           videoEl.style.display = 'none';
           videoEl.parentNode.insertBefore(img, videoEl.nextSibling);
@@ -111,7 +111,7 @@
     // initial check: if camera is already registered, start viewer
     async function check(){
       try{
-        const res = await fetch('/CCTV/feed_status');
+  const res = await fetch('/feed_status');
         const json = await res.json();
         const info = (json.feeds || []).find(f => f.camera === camera);
         console.log('feed_status check:', json.feeds, 'looking for', camera, 'found:', info);

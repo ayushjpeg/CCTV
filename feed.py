@@ -1,4 +1,4 @@
-"""Feeder client: captures from a webcam and POSTs JPEG frames to the server's /CCTV/push_frame endpoint.
+"""Feeder client: captures from a webcam and POSTs JPEG frames to the server's /push_frame endpoint.
 
 Usage:
     python feed.py --url http://yourserver:8000 --key <FEED_KEY> --camera 0 --fps 5
@@ -21,7 +21,7 @@ def main():
     p.add_argument('--quality', type=int, default=80, help='JPEG quality 1-100')
     args = p.parse_args()
 
-    push_url = args.url.rstrip('/') + '/CCTV/push_frame'
+    push_url = args.url.rstrip('/') + '/push_frame'
     cap = cv2.VideoCapture(int(args.camera) if str(args.camera).isdigit() else args.camera)
     if not cap.isOpened():
         print('Unable to open camera', args.camera)

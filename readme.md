@@ -5,7 +5,7 @@ It lets one device broadcast a live camera feed while other devices connect over
 
 ### Features
 - WebRTC peer-to-peer streaming with VP8/Opus codecs.
-- Flask + Socket.IO signaling server (`/CCTV/socket.io`).
+- Flask + Socket.IO signaling server (`/socket.io`).
 - TURN-first ICE policy with automatic bitrate tuning for constrained uplinks.
 - Responsive UI with Broadcast/Watch tabs (`templates/index.html`).
 - Dockerfile for container deployments plus bare-metal instructions.
@@ -118,7 +118,7 @@ Optional verification:
 | Viewers connect to phone broadcaster but not laptop | Laptop firewall blocking TURN return path | Follow section 6 to add inbound rules |
 | ICE state fails with policy `relay` | TURN not reachable from client | Test ports, verify DNS, ensure router forwards 3478 + relay range |
 | Phone works on Wi-Fi but not LTE | Mobile carrier blocks UDP 3478 | Add `turn:server?transport=tcp` entries or host TURN on 80/443 |
-| No cameras listed in Watch tab | Broadcaster not registered or Socket.IO path blocked | Ensure `/CCTV/socket.io` accessible; check server logs |
+| No cameras listed in Watch tab | Broadcaster not registered or Socket.IO path blocked | Ensure `/socket.io` accessible; check server logs |
 
 Enable Chrome’s `chrome://webrtc-internals/` or Edge equivalent to inspect candidate pairs, bitrate, and connection states when debugging.
 

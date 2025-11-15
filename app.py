@@ -5,7 +5,7 @@ from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
 from collections import defaultdict
 
-app = Flask(__name__, static_url_path='/CCTV/static', static_folder='static')
+app = Flask(__name__, static_url_path='/static', static_folder='static')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.secret_key = os.urandom(24)
 
@@ -13,7 +13,7 @@ socketio = SocketIO(
     app,
     cors_allowed_origins='*',
     async_mode='threading',
-    path='/CCTV/socket.io'
+    path='/socket.io'
 )
 
 # Track active broadcasters: camera_id -> {sid, name, timestamp}
@@ -39,7 +39,7 @@ def cleanup_stale():
 cleanup_thread = threading.Thread(target=cleanup_stale, daemon=True)
 cleanup_thread.start()
 
-@app.route('/CCTV/')
+@app.route('/')
 def index():
     return render_template('index.html')
 
@@ -130,5 +130,5 @@ def on_disconnect():
 
 if __name__ == '__main__':
     print('[CCTV] WebRTC CCTV System starting...')
-    print('[CCTV] All endpoints under /CCTV/')
+    print('[CCTV] Serving app at root path /')
     socketio.run(app, host='0.0.0.0', port=8001, debug=False, allow_unsafe_werkzeug=True)
