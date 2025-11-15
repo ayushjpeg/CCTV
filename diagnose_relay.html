@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TURN Relay Diagnostics</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #0f0; }
+        .log { background: #000; padding: 10px; margin: 10px 0; border: 1px solid #0f0; }
+        .error { color: #f00; }
+        .success { color: #0f0; }
+        .warning { color: #ff0; }
+    </style>
+</head>
+<body>
+    <h1>TURN Relay Diagnostics</h1>
+    <button onclick="testRelay()">Test TURN Relay Mode</button>
+    <button onclick="testAll()">Test 'All' Mode</button>
+    <button onclick="clearLogs()">Clear</button>
+    <div id="logs"></div>
+
+    <script>
+        function log(msg, type = 'info') {
+            const logs = document.getElementById('logs');
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logs.appendChild(div);
+            console.log(msg);
+        }
+
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+        }
+
+        async function testRelay() {
+            clearLogs();
+            log('=== TESTING RELAY MODE ===', 'warning');
+            await runTest('relay');
+        }
+
+        async function testAll() {
+            clearLogs();
+            log('=== TESTING ALL MODE ===', 'warning');
+            await runTest('all');
+        }
+
+        async function runTest(transportPolicy) {
+            const config = {
+                iceServers: [
+                    {
+                        urls: 'turn:122.169.4.176:3478',
+                        username: 'cctv',
+                        credential: 'wheresrusty'
+                    },
+                    {
+                        urls: 'turn:122.169.4.176:3478?transport=tcp',
+                        username: 'cctv',
+                        credential: 'wheresrusty'
+                    }
+                ],
+                iceTransportPolicy: transportPolicy,
+                iceCandidatePoolSize: 10
+            };
+
+            log(`Creating RTCPeerConnection with iceTransportPolicy: "${transportPolicy}"`);
+            
+            const pc = new RTCPeerConnection(config);
+            
+            let candidateCount = {
+                host: 0,
+                srflx: 0,
+                relay: 0
+            };
+
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    const type = event.candidate.type;
+                    const protocol = event.candidate.protocol;
+                    const address = event.candidate.address || event.candidate.ip || 'unknown';
+                    const port = event.candidate.port || 'unknown';
+                    
+                    candidateCount[type]++;
+                    
+                    const typeColor = type === 'relay' ? 'success' : 'info';
+                    log(`ICE Candidate: type=${type}, protocol=${protocol}, ${address}:${port}`, typeColor);
+                } else {
+                    log('ICE gathering complete', 'warning');
+                    log(`Summary: host=${candidateCount.host}, srflx=${candidateCount.srflx}, relay=${candidateCount.relay}`, 'warning');
+                    
+                    if (transportPolicy === 'relay' && candidateCount.relay === 0) {
+                        log('ERROR: Relay mode but NO relay candidates! Check TURN server and port forwarding!', 'error');
+                    } else if (candidateCount.relay > 0) {
+                        log('SUCCESS: Relay candidates found!', 'success');
+                    }
+                }
+            };
+
+            pc.onicegatheringstatechange = () => {
+                log(`ICE gathering state: ${pc.iceGatheringState}`, 'info');
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                log(`ICE connection state: ${pc.iceConnectionState}`, 'info');
+            };
+
+            pc.onconnectionstatechange = () => {
+                log(`Connection state: ${pc.connectionState}`, 'info');
+            };
+
+            try {
+                // Create dummy transceivers to trigger ICE gathering
+                pc.addTransceiver('video', { direction: 'recvonly' });
+                pc.addTransceiver('audio', { direction: 'recvonly' });
+                
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                log('Offer created, ICE gathering started...', 'success');
+                
+                // Keep connection alive for 10 seconds to gather all candidates
+                setTimeout(() => {
+                    pc.close();
+                    log('Test complete, peer connection closed', 'warning');
+                }, 10000);
+                
+            } catch (e) {
+                log(`ERROR: ${e.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

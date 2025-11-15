@@ -219,28 +219,37 @@
 
         socket.on('ice_candidate', (data) => {
             const { from_sid, candidate } = data;
-            console.log(`[Ice] Received ICE candidate from ${from_sid}`);
+            console.log(`[Ice] 📩 Received ICE from ${from_sid}:`, {
+                type: candidate.type,
+                protocol: candidate.protocol,
+                address: candidate.address || candidate.ip,
+                port: candidate.port
+            });
             
             // Check if this is for our current watch peer connection
             if (currentWatchPeer && currentWatchCameraId) {
                 // We're a viewer - add the ICE candidate to our watch peer
-                console.log(`[Watch] Adding ICE candidate from broadcaster`);
+                console.log(`[Watch] ➕ Adding ICE candidate from broadcaster (type: ${candidate.type})`);
                 currentWatchPeer.addIceCandidate(new RTCIceCandidate(candidate))
-                    .catch(e => console.error('[Watch] ICE error:', e));
+                    .then(() => console.log(`[Watch] ✅ ICE candidate added successfully`))
+                    .catch(e => console.error('[Watch] ❌ ICE error:', e));
             }
             
             // Check if this is for a broadcaster's peer connection with a viewer
             const pc = peerConnections[from_sid];
             if (pc) {
-                console.log(`[Broadcast] Adding ICE candidate from viewer ${from_sid}`);
+                console.log(`[Broadcast] ➕ Adding ICE candidate from viewer ${from_sid} (type: ${candidate.type})`);
                 pc.addIceCandidate(new RTCIceCandidate(candidate))
-                    .catch(e => console.warn('[Broadcast] ICE error:', e));
+                    .then(() => console.log(`[Broadcast] ✅ ICE candidate added successfully`))
+                    .catch(e => console.warn('[Broadcast] ❌ ICE error:', e));
             }
         });
 
         function createPeerConnection(peerId, isBroadcaster) {
             // Force relay mode for broadcaster to bypass laptop NAT issues
             const transportPolicy = isBroadcaster ? 'relay' : 'all';
+            
+            console.log(`[CreatePC] Creating peer for ${peerId}, isBroadcaster=${isBroadcaster}, transportPolicy="${transportPolicy}"`);
             
             const peerConnection = new RTCPeerConnection({
                 iceServers: [
@@ -256,20 +265,28 @@
                         credential: 'wheresrusty'
                     }
                 ],
-                iceTransportPolicy: 'all',  // Force relay for broadcasters
+                iceTransportPolicy: transportPolicy,  // Use the variable!
                 iceCandidatePoolSize: 10              // Gather more ICE candidates
             });
 
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
-                    console.log(`[PC-${peerId}] Sending ICE candidate: ${event.candidate.type}`);
+                    const cand = event.candidate;
+                    console.log(`[PC-${peerId}] 🧊 ICE Candidate:`, {
+                        type: cand.type,
+                        protocol: cand.protocol,
+                        address: cand.address || cand.ip,
+                        port: cand.port,
+                        relatedAddress: cand.relatedAddress,
+                        transportPolicy: isBroadcaster ? 'relay' : 'all'
+                    });
                     socket.emit('ice_candidate', {
                         target_sid: peerId,
                         camera_id: peerId,
                         candidate: event.candidate
                     });
                 } else {
-                    console.log(`[PC-${peerId}] ICE gathering complete`);
+                    console.log(`[PC-${peerId}] ✅ ICE gathering complete (transportPolicy: ${isBroadcaster ? 'relay' : 'all'})`);
                 }
             };
 
@@ -303,17 +320,20 @@
 
             peerConnection.oniceconnectionstatechange = () => {
                 const state = peerConnection.iceConnectionState;
-                console.log(`[PC-${peerId}] ICE state: ${state}`);
+                console.log(`[PC-${peerId}] 🔌 ICE state: ${state} (transportPolicy: ${transportPolicy})`);
                 
                 // If connection fails, log detailed info
                 if (state === 'failed' || state === 'disconnected') {
-                    console.error(`[PC-${peerId}] ICE connection ${state}. This usually means NAT/firewall issue.`);
+                    console.error(`[PC-${peerId}] ❌ ICE connection ${state}. transportPolicy was: ${transportPolicy}`);
+                    console.error(`[PC-${peerId}] This usually means NAT/firewall issue or TURN relay not working.`);
                     
                     // Try ICE restart
                     if (state === 'failed' && !isBroadcaster && peerId === currentWatchCameraId) {
                         console.log('[Watch] Attempting ICE restart...');
                         // ICE restart will be handled by creating a new offer with iceRestart flag
                     }
+                } else if (state === 'connected' || state === 'completed') {
+                    console.log(`[PC-${peerId}] 🎉 SUCCESS! ICE connection established with transportPolicy: ${transportPolicy}`);
                 }
             };
 
