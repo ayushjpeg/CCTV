@@ -275,7 +275,7 @@
                         address: cand.address || cand.ip,
                         port: cand.port,
                         candidate: cand.candidate,  // The SDP string
-                        transportPolicy: isBroadcaster ? 'relay' : 'all'
+                        transportPolicy: 'all'
                     });
                     
                     // If broadcaster with relay mode but NOT generating relay candidates, that's the bug!
