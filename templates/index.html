@@ -219,17 +219,14 @@
 
         socket.on('ice_candidate', (data) => {
             const { from_sid, candidate } = data;
-            console.log(`[Ice] 📩 Received ICE from ${from_sid}:`, {
-                type: candidate.type,
-                protocol: candidate.protocol,
-                address: candidate.address || candidate.ip,
-                port: candidate.port
-            });
+            
+            // Log the RAW candidate object
+            console.log(`[Ice] 📩 Received RAW ICE from ${from_sid}:`, candidate);
             
             // Check if this is for our current watch peer connection
             if (currentWatchPeer && currentWatchCameraId) {
                 // We're a viewer - add the ICE candidate to our watch peer
-                console.log(`[Watch] ➕ Adding ICE candidate from broadcaster (type: ${candidate.type})`);
+                console.log(`[Watch] ➕ Adding ICE candidate from broadcaster`);
                 currentWatchPeer.addIceCandidate(new RTCIceCandidate(candidate))
                     .then(() => console.log(`[Watch] ✅ ICE candidate added successfully`))
                     .catch(e => console.error('[Watch] ❌ ICE error:', e));
@@ -238,7 +235,7 @@
             // Check if this is for a broadcaster's peer connection with a viewer
             const pc = peerConnections[from_sid];
             if (pc) {
-                console.log(`[Broadcast] ➕ Adding ICE candidate from viewer ${from_sid} (type: ${candidate.type})`);
+                console.log(`[Broadcast] ➕ Adding ICE candidate from viewer ${from_sid}`);
                 pc.addIceCandidate(new RTCIceCandidate(candidate))
                     .then(() => console.log(`[Broadcast] ✅ ICE candidate added successfully`))
                     .catch(e => console.warn('[Broadcast] ❌ ICE error:', e));
@@ -272,14 +269,20 @@
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
                     const cand = event.candidate;
-                    console.log(`[PC-${peerId}] 🧊 ICE Candidate:`, {
+                    console.log(`[PC-${peerId}] 🧊 Generated ICE Candidate (isBroadcaster=${isBroadcaster}):`, {
                         type: cand.type,
                         protocol: cand.protocol,
                         address: cand.address || cand.ip,
                         port: cand.port,
-                        relatedAddress: cand.relatedAddress,
+                        candidate: cand.candidate,  // The SDP string
                         transportPolicy: isBroadcaster ? 'relay' : 'all'
                     });
+                    
+                    // If broadcaster with relay mode but NOT generating relay candidates, that's the bug!
+                    if (isBroadcaster && transportPolicy === 'relay' && cand.type !== 'relay') {
+                        console.error(`[PC-${peerId}] 🚨 BUG: Broadcaster in relay mode but generated ${cand.type} candidate!`);
+                    }
+                    
                     socket.emit('ice_candidate', {
                         target_sid: peerId,
                         camera_id: peerId,
