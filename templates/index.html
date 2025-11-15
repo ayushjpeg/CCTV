@@ -243,8 +243,8 @@
         });
 
         function createPeerConnection(peerId, isBroadcaster) {
-            // Force relay mode for broadcaster to bypass laptop NAT issues
-            const transportPolicy = isBroadcaster ? 'relay' : 'all';
+            // Use 'all' mode for everyone - relay mode doesn't work with laptop's NAT
+            const transportPolicy = 'all';
             
             console.log(`[CreatePC] Creating peer for ${peerId}, isBroadcaster=${isBroadcaster}, transportPolicy="${transportPolicy}"`);
             
