@@ -190,6 +190,7 @@
                         <div id="onlineUsersList" class="online-users">
                             <div class="call-empty-state">Save a profile to appear online.</div>
                         </div>
+                        <div id="callHelpText" class="status warn" style="display: none; margin-top: 1rem;"></div>
                     </div>
                 </div>
 
@@ -237,7 +238,10 @@
             { urls: `turn:${TURN_HOST}:${TURN_PORT}?transport=tcp`, username: TURN_USERNAME, credential: TURN_PASSWORD }
         ];
 
-        const socket = io(window.location.origin, { path: '/socket.io' });
+    const socket = io(window.location.origin, { path: '/socket.io' });
+    const SECURE_MEDIA_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+    const requiresSecureMediaContext = location.protocol !== 'https:' && !SECURE_MEDIA_HOSTS.has(location.hostname);
+    let onlineUsersPollTimer = null;
 
         const viewerCounts = {};
         let knownCameras = [];
@@ -247,6 +251,7 @@
             cameraId: null,
             stream: null,
             heartbeatTimer: null,
+            viewerPollTimer: null,
             statusEl: document.getElementById('bcStatus'),
             buttonEl: document.getElementById('startBtn'),
             viewerCountEl: document.getElementById('viewerCountValue')
@@ -283,10 +288,12 @@
             declineBtn: document.getElementById('declineCallBtn'),
             leaveBtn: document.getElementById('leaveCallBtn'),
             participantsEl: document.getElementById('activeCallParticipants'),
-            onlineUsersEl: document.getElementById('onlineUsersList')
+            onlineUsersEl: document.getElementById('onlineUsersList'),
+            helpEl: document.getElementById('callHelpText'),
+            lastSeenUsers: []
         };
 
-        const callNameInput = document.getElementById('callNameInput');
+    const callNameInput = document.getElementById('callNameInput');
         const autoPickupToggle = document.getElementById('autoPickupToggle');
         const saveCallProfileBtn = document.getElementById('saveCallProfileBtn');
         const closeRemoteBtn = document.getElementById('closeRemoteBtn');
@@ -304,6 +311,45 @@
             el.style.display = 'block';
             el.classList.remove('info', 'success', 'warn', 'error');
             el.classList.add(variant);
+        }
+
+        function startOnlineUsersPolling() {
+            if (onlineUsersPollTimer) return;
+            onlineUsersPollTimer = setInterval(() => {
+                socket.emit('request_online_users');
+            }, 10000);
+        }
+
+        function stopOnlineUsersPolling() {
+            if (!onlineUsersPollTimer) return;
+            clearInterval(onlineUsersPollTimer);
+            onlineUsersPollTimer = null;
+        }
+
+        function updateCallHelp(users = callState.lastSeenUsers || []) {
+            if (!callState.helpEl) return;
+            callState.lastSeenUsers = users;
+            let message = '';
+            let variant = 'info';
+
+            if (requiresSecureMediaContext) {
+                message = 'Browsers block camera/mic on HTTP when using a LAN URL. Access the console over HTTPS (for example via Cloudflare Tunnel) or from localhost to place calls.';
+                variant = 'warn';
+            } else if (!callState.username) {
+                message = 'Choose a display name and click "Go Online" to enable the call controls.';
+            } else {
+                const others = users.filter(u => u.name !== callState.username);
+                if (!others.length) {
+                    message = 'Waiting for another operator to appear online. Open a second browser window or device to test calls.';
+                    variant = 'warn';
+                }
+            }
+
+            if (message) {
+                setStatus(callState.helpEl, message, variant);
+            } else {
+                callState.helpEl.style.display = 'none';
+            }
         }
 
         function updateBroadcastViewerCount() {
@@ -368,6 +414,10 @@
                 broadcastState.heartbeatTimer = setInterval(() => {
                     socket.emit('broadcaster_heartbeat', { camera_id: cameraName });
                 }, 5000);
+                broadcastState.viewerPollTimer = setInterval(() => {
+                    socket.emit('request_viewer_counts');
+                }, 10000);
+                socket.emit('request_viewer_counts');
             } catch (err) {
                 console.error(err);
                 setStatus(broadcastState.statusEl, err.message || 'Failed to access camera', 'error');
@@ -382,6 +432,10 @@
             if (broadcastState.heartbeatTimer) {
                 clearInterval(broadcastState.heartbeatTimer);
                 broadcastState.heartbeatTimer = null;
+            }
+            if (broadcastState.viewerPollTimer) {
+                clearInterval(broadcastState.viewerPollTimer);
+                broadcastState.viewerPollTimer = null;
             }
             socket.emit('stop_broadcast', { camera_id: broadcastState.cameraId });
             broadcastState.active = false;
@@ -511,21 +565,33 @@
         // -------------------- Call Hub --------------------
 
         function renderOnlineUsers(users = []) {
+            console.log('[call] renderOnlineUsers called with', users.length, 'users:', users);
+            callState.lastSeenUsers = users.slice();
             if (!users.length) {
                 callState.onlineUsersEl.innerHTML = '<div class="call-empty-state">No one is online yet.</div>';
+                updateCallHelp(users);
                 return;
             }
             callState.onlineUsersEl.innerHTML = users.map(user => {
                 const busy = user.in_call;
                 const meta = busy ? 'In a call' : (user.auto_pickup ? 'Auto pickup on' : 'Manual pickup');
-                const disabled = !callState.username || user.name === callState.username || busy;
+                let disableReason = '';
+                if (!callState.username) {
+                    disableReason = 'Click "Go Online" to start calling.';
+                } else if (user.name === callState.username) {
+                    disableReason = 'This is you.';
+                } else if (busy) {
+                    disableReason = `${user.name} is already in a call.`;
+                }
+                const disabled = Boolean(disableReason);
+                const titleAttr = disableReason ? `title="${disableReason.replace(/"/g, '&quot;')}"` : '';
                 return `
                     <div class="online-user-card ${busy ? 'busy' : ''}" data-user="${user.name}">
                         <div>
                             <div style="font-weight:600;">${user.name}</div>
                             <div class="meta">${meta}</div>
                         </div>
-                        <button class="btn btn-secondary" ${disabled ? 'disabled' : ''}>Call</button>
+                        <button class="btn btn-secondary" ${disabled ? 'disabled' : ''} ${titleAttr}>Call</button>
                     </div>
                 `;
             }).join('');
@@ -536,6 +602,7 @@
                     button.addEventListener('click', () => startCall(target));
                 }
             });
+            updateCallHelp(users);
         }
 
         function updatePresenceChip() {
@@ -551,9 +618,24 @@
 
         async function ensureCallLocalStream() {
             if (callState.localStream) return callState.localStream;
-            callState.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            callState.localVideo.srcObject = callState.localStream;
-            return callState.localStream;
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                setStatus(callState.statusEl, 'Camera/microphone capture is not supported in this browser.', 'error');
+                throw new Error('getUserMedia unsupported');
+            }
+            try {
+                callState.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                callState.localVideo.srcObject = callState.localStream;
+                return callState.localStream;
+            } catch (err) {
+                let message = err?.message || 'Unable to access camera/microphone.';
+                if (requiresSecureMediaContext) {
+                    message = 'Browser blocked camera/mic because this page was loaded over HTTP. Use HTTPS or run from localhost to place calls.';
+                } else if (err?.name === 'NotAllowedError') {
+                    message = 'Permission to use camera/microphone was denied. Allow access and try again.';
+                }
+                setStatus(callState.statusEl, message, 'error');
+                throw err;
+            }
         }
 
         function teardownCall(message = 'Call ended') {
@@ -711,11 +793,18 @@
         const storedAuto = localStorage.getItem('callAutoPickup');
         if (storedName) callNameInput.value = storedName;
         if (storedAuto !== null) autoPickupToggle.checked = storedAuto === 'true';
+    updateCallHelp();
 
         // -------------------- Socket Events --------------------
 
         socket.on('connect', () => {
             socket.emit('request_viewer_counts');
+            socket.emit('request_online_users');
+            startOnlineUsersPolling();
+        });
+
+        socket.on('disconnect', () => {
+            stopOnlineUsersPolling();
         });
 
         socket.on('broadcasters_list', (data) => {
@@ -775,9 +864,12 @@
             autoPickupToggle.checked = data.auto_pickup;
             setStatus(callState.statusEl, `Online as ${data.name}`, 'success');
             updatePresenceChip();
+            updateCallHelp(callState.lastSeenUsers || []);
+            socket.emit('request_online_users');
         });
 
         socket.on('online_users', (data) => {
+            console.log('[call] Received online_users:', data.users);
             renderOnlineUsers(data.users || []);
         });
 

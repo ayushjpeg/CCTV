@@ -57,7 +57,7 @@ def cleanup_stale():
         if stale:
             with app.app_context():
                 for cid in stale:
-                    socketio.emit('broadcaster_left', {'camera_id': cid}, broadcast=True)
+                    socketio.emit('broadcaster_left', {'camera_id': cid})
 
 cleanup_thread = threading.Thread(target=cleanup_stale, daemon=True)
 cleanup_thread.start()
@@ -71,6 +71,8 @@ def on_connect():
     print(f'[socket] Client connected: {request.sid}')
     with BROADCASTERS_LOCK:
         emit('broadcasters_list', {'broadcasters': list(BROADCASTERS.keys())})
+    _emit_viewer_counts(target_sid=request.sid)
+    _broadcast_online_users(target_sid=request.sid)
 
 @socketio.on('register_broadcaster')
 def on_register_broadcaster(data):
@@ -87,7 +89,7 @@ def on_register_broadcaster(data):
     with SESSION_ROLES_LOCK:
         SESSION_ROLES[request.sid] = {'type': 'broadcaster', 'camera_id': camera_id}
     print(f'[socket] Broadcaster registered: {camera_id}')
-    emit('broadcasters_list', {'broadcasters': broadcasters_list}, broadcast=True)
+    socketio.emit('broadcasters_list', {'broadcasters': broadcasters_list})
 
 @socketio.on('broadcaster_heartbeat')
 def on_heartbeat(data):
@@ -128,7 +130,7 @@ def on_viewer_join(data):
         count = len(VIEWERS[camera_id])
     with SESSION_ROLES_LOCK:
         SESSION_ROLES[request.sid] = {'type': 'viewer', 'camera_id': camera_id}
-    socketio.emit('viewer_count', {'camera_id': camera_id, 'count': count}, broadcast=True)
+    socketio.emit('viewer_count', {'camera_id': camera_id, 'count': count})
 
 
 @socketio.on('viewer_leave')
@@ -139,11 +141,12 @@ def on_viewer_leave(data):
 
 @socketio.on('request_viewer_counts')
 def on_request_viewer_counts():
-    snapshot = {}
-    with VIEWERS_LOCK:
-        for cid, viewers in VIEWERS.items():
-            snapshot[cid] = len(viewers)
-    emit('viewer_counts', {'counts': snapshot})
+    _emit_viewer_counts(target_sid=request.sid)
+
+
+@socketio.on('request_online_users')
+def on_request_online_users():
+    _broadcast_online_users(target_sid=request.sid)
 
 @socketio.on('broadcaster_answer')
 def on_broadcaster_answer(data):
@@ -177,7 +180,7 @@ def on_stop_broadcast(data):
     with BROADCASTERS_LOCK:
         if camera_id in BROADCASTERS and BROADCASTERS[camera_id]['sid'] == request.sid:
             del BROADCASTERS[camera_id]
-            emit('broadcasters_list', {'broadcasters': list(BROADCASTERS.keys())}, broadcast=True)
+            socketio.emit('broadcasters_list', {'broadcasters': list(BROADCASTERS.keys())})
             print(f'[socket] Broadcaster stopped manually: {camera_id}')
 
 @socketio.on('disconnect')
@@ -191,7 +194,7 @@ def _remove_viewer(sid, camera_id=None):
             viewers = VIEWERS.get(camera_id)
             if viewers and sid in viewers:
                 viewers.remove(sid)
-                socketio.emit('viewer_count', {'camera_id': camera_id, 'count': len(viewers)}, broadcast=True)
+                socketio.emit('viewer_count', {'camera_id': camera_id, 'count': len(viewers)})
                 if not viewers:
                     VIEWERS.pop(camera_id, None)
             return
@@ -199,7 +202,7 @@ def _remove_viewer(sid, camera_id=None):
         for cid, viewers in list(VIEWERS.items()):
             if sid in viewers:
                 viewers.remove(sid)
-                socketio.emit('viewer_count', {'camera_id': cid, 'count': len(viewers)}, broadcast=True)
+                socketio.emit('viewer_count', {'camera_id': cid, 'count': len(viewers)})
                 if not viewers:
                     VIEWERS.pop(cid, None)
 
@@ -213,7 +216,7 @@ def _handle_disconnect(sid):
                 del BROADCASTERS[cid]
                 break
         if camera_id:
-            socketio.emit('broadcasters_list', {'broadcasters': list(BROADCASTERS.keys())}, broadcast=True)
+            socketio.emit('broadcasters_list', {'broadcasters': list(BROADCASTERS.keys())})
             print(f'[socket] Broadcaster disconnected: {camera_id}')
 
     _remove_viewer(sid)
@@ -235,7 +238,7 @@ def _handle_disconnect(sid):
 
 # ------------- Calling feature helpers -------------
 
-def _broadcast_online_users():
+def _broadcast_online_users(target_sid=None):
     with USERS_LOCK:
         payload = []
         for name, data in USERS.items():
@@ -244,7 +247,21 @@ def _broadcast_online_users():
                 'auto_pickup': data.get('auto_pickup', False),
                 'in_call': USER_ACTIVE_CALL.get(name) is not None
             })
-    socketio.emit('online_users', {'users': payload}, broadcast=True)
+    if target_sid:
+        print(f'[call] Emitting online_users to {target_sid}: {len(payload)} users')
+        socketio.emit('online_users', {'users': payload}, to=target_sid)
+    else:
+        print(f'[call] Broadcasting online_users to all: {len(payload)} users')
+        socketio.emit('online_users', {'users': payload})
+
+
+def _emit_viewer_counts(target_sid=None):
+    with VIEWERS_LOCK:
+        snapshot = {cid: len(viewers) for cid, viewers in VIEWERS.items()}
+    if target_sid:
+        socketio.emit('viewer_counts', {'counts': snapshot}, to=target_sid)
+    else:
+        socketio.emit('viewer_counts', {'counts': snapshot})
 
 
 def _join_call(call_id, username, initiator=None):
@@ -353,8 +370,10 @@ def register_user(data):
         }
         SID_TO_USER[request.sid] = username
 
+    print(f'[call] User registered: {username}, auto_pickup={auto_pickup}')
     emit('user_registered', {'name': username, 'auto_pickup': auto_pickup})
     _broadcast_online_users()
+    print(f'[call] Broadcasting online users after registration. Total: {len(USERS)}')
 
 
 @socketio.on('update_auto_pickup')
