@@ -68,7 +68,6 @@ def index():
 
 @socketio.on('connect')
 def on_connect():
-    print(f'[socket] Client connected: {request.sid}')
     with BROADCASTERS_LOCK:
         emit('broadcasters_list', {'broadcasters': list(BROADCASTERS.keys())})
     _emit_viewer_counts(target_sid=request.sid)
@@ -88,7 +87,6 @@ def on_register_broadcaster(data):
         broadcasters_list = list(BROADCASTERS.keys())
     with SESSION_ROLES_LOCK:
         SESSION_ROLES[request.sid] = {'type': 'broadcaster', 'camera_id': camera_id}
-    print(f'[socket] Broadcaster registered: {camera_id}')
     socketio.emit('broadcasters_list', {'broadcasters': broadcasters_list})
 
 @socketio.on('broadcaster_heartbeat')
@@ -102,22 +100,17 @@ def on_heartbeat(data):
 def on_viewer_offer(data):
     camera_id = data.get('camera_id')
     sdp = data.get('sdp')
-    print(f'[socket] Received viewer_offer for camera: {camera_id}')
     if not camera_id or not sdp:
-        print(f'[socket] Invalid viewer_offer: missing camera_id or sdp')
         return
     with BROADCASTERS_LOCK:
         broadcaster = BROADCASTERS.get(camera_id)
         if broadcaster:
             broadcaster_sid = broadcaster['sid']
-            print(f'[socket] Forwarding viewer_offer to broadcaster {broadcaster_sid}')
             socketio.emit('viewer_offer', {
                 'camera_id': camera_id,
                 'viewer_sid': request.sid,
                 'sdp': sdp
             }, to=broadcaster_sid)
-        else:
-            print(f'[socket] Broadcaster not found: {camera_id}')
 
 
 @socketio.on('viewer_join')
@@ -152,24 +145,18 @@ def on_request_online_users():
 def on_broadcaster_answer(data):
     viewer_sid = data.get('viewer_sid')
     sdp = data.get('sdp')
-    print(f'[socket] Received broadcaster_answer, forwarding to viewer {viewer_sid}')
     if viewer_sid and sdp:
         socketio.emit('broadcaster_answer', {'sdp': sdp}, to=viewer_sid)
-    else:
-        print(f'[socket] Invalid broadcaster_answer: missing viewer_sid or sdp')
 
 @socketio.on('ice_candidate')
 def on_ice_candidate(data):
     target_sid = data.get('target_sid')
     candidate = data.get('candidate')
-    print(f'[socket] Received ICE candidate, forwarding to {target_sid}')
     if target_sid and candidate:
         socketio.emit('ice_candidate', {
             'candidate': candidate,
             'from_sid': request.sid
         }, to=target_sid)
-    else:
-        print(f'[socket] Invalid ICE candidate: missing target_sid or candidate')
 
 
 @socketio.on('stop_broadcast')
@@ -181,7 +168,6 @@ def on_stop_broadcast(data):
         if camera_id in BROADCASTERS and BROADCASTERS[camera_id]['sid'] == request.sid:
             del BROADCASTERS[camera_id]
             socketio.emit('broadcasters_list', {'broadcasters': list(BROADCASTERS.keys())})
-            print(f'[socket] Broadcaster stopped manually: {camera_id}')
 
 @socketio.on('disconnect')
 def on_disconnect():
@@ -217,7 +203,6 @@ def _handle_disconnect(sid):
                 break
         if camera_id:
             socketio.emit('broadcasters_list', {'broadcasters': list(BROADCASTERS.keys())})
-            print(f'[socket] Broadcaster disconnected: {camera_id}')
 
     _remove_viewer(sid)
 
@@ -248,10 +233,8 @@ def _broadcast_online_users(target_sid=None):
                 'in_call': USER_ACTIVE_CALL.get(name) is not None
             })
     if target_sid:
-        print(f'[call] Emitting online_users to {target_sid}: {len(payload)} users')
         socketio.emit('online_users', {'users': payload}, to=target_sid)
     else:
-        print(f'[call] Broadcasting online_users to all: {len(payload)} users')
         socketio.emit('online_users', {'users': payload})
 
 
@@ -370,10 +353,8 @@ def register_user(data):
         }
         SID_TO_USER[request.sid] = username
 
-    print(f'[call] User registered: {username}, auto_pickup={auto_pickup}')
     emit('user_registered', {'name': username, 'auto_pickup': auto_pickup})
     _broadcast_online_users()
-    print(f'[call] Broadcasting online users after registration. Total: {len(USERS)}')
 
 
 @socketio.on('update_auto_pickup')

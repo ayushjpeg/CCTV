@@ -91,9 +91,26 @@
         .participants-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
         .pill { padding: 0.35rem 0.8rem; border-radius: 999px; background: rgba(255,255,255,0.08); font-size: 0.85rem; letter-spacing: 0.01em; }
 
+        .media-controls { display: flex; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap; }
+        .media-btn { padding: 0.65rem 1rem; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background: rgba(24,24,27,0.85); color: #e5e7eb; font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; }
+        .media-btn:hover { background: rgba(40,40,43,0.9); border-color: rgba(99,102,241,0.5); }
+        .media-btn.active { background: rgba(99,102,241,0.2); border-color: rgba(99,102,241,0.6); color: #c7d2fe; }
+        .media-btn.muted { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.5); color: #fecaca; }
+        .media-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        
+        .video-wrapper { position: relative; }
+        .video-overlay-controls { position: absolute; bottom: 1rem; left: 50%; transform: translateX(-50%); display: flex; gap: 0.5rem; opacity: 0; transition: opacity 0.3s; z-index: 10; }
+        .video-wrapper:hover .video-overlay-controls { opacity: 1; }
+        .overlay-btn { padding: 0.5rem 0.75rem; border: none; border-radius: 6px; background: rgba(0,0,0,0.75); color: #fff; font-size: 0.85rem; cursor: pointer; backdrop-filter: blur(10px); transition: all 0.2s; }
+        .overlay-btn:hover { background: rgba(99,102,241,0.8); }
+        
+        .mute-indicator { position: absolute; top: 0.75rem; right: 0.75rem; background: rgba(239,68,68,0.9); color: #fff; padding: 0.35rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600; display: none; z-index: 5; }
+        .mute-indicator.show { display: block; }
+
         @media (max-width: 768px) {
             .call-controls { flex-direction: column; }
             .btn { width: 100%; }
+            .media-controls { justify-content: center; }
         }
     </style>
 </head>
@@ -142,6 +159,14 @@
                             </select>
                         </div>
                         <button class="btn btn-primary" id="startBtn">Start Broadcasting</button>
+                        <div class="media-controls" id="broadcastMediaControls" style="display: none;">
+                            <button class="media-btn" id="broadcastMicBtn" title="Toggle Microphone">
+                                <span>🎤</span> Mic
+                            </button>
+                            <button class="media-btn" id="broadcastVideoBtn" title="Toggle Camera">
+                                <span>📹</span> Video
+                            </button>
+                        </div>
                         <div class="viewer-pill" id="viewerCountPill">
                             <span>Live viewers</span>
                             <span class="value" id="viewerCountValue">0</span>
@@ -160,8 +185,12 @@
             </div>
             <div id="videoPlayerModal" style="display: none; margin-top: 3rem;">
                 <div id="watchStatus" class="status info">Connecting...</div>
-                <div style="background: rgba(10,10,10,0.95); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; overflow: hidden; aspect-ratio: 16/9; margin-bottom: 1.5rem;">
+                <div class="video-wrapper" style="background: rgba(10,10,10,0.95); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; overflow: hidden; aspect-ratio: 16/9; margin-bottom: 1.5rem; position: relative;">
                     <video id="remoteVideo" autoplay playsinline controls style="width: 100%; height: 100%; object-fit: cover; background: #000;"></video>
+                    <div class="video-overlay-controls">
+                        <button class="overlay-btn" id="watchFullscreenBtn" title="Fullscreen">⛶ Fullscreen</button>
+                        <button class="overlay-btn" id="watchPipBtn" title="Picture-in-Picture">📺 PiP</button>
+                    </div>
                 </div>
                 <button class="btn btn-secondary" id="closeRemoteBtn" style="width: auto; padding: 0.75rem 2.2rem;">Close Video</button>
             </div>
@@ -210,9 +239,13 @@
                     </div>
 
                     <div class="call-video-grid" id="callVideoGrid">
-                        <div class="video-tile">
+                        <div class="video-tile video-wrapper">
                             <div class="video-label">You</div>
                             <video id="callLocalVideo" class="call-video" autoplay playsinline muted></video>
+                            <div class="mute-indicator" id="callLocalMuteIndicator">🔇 Muted</div>
+                            <div class="video-overlay-controls">
+                                <button class="overlay-btn" id="callLocalFullscreenBtn" title="Fullscreen">⛶</button>
+                            </div>
                         </div>
                         <div id="callRemoteGrid" class="video-tile" style="min-height: 240px; display: flex; align-items: center; justify-content: center;">
                             <div class="call-empty-state" style="width: 100%;">Remote video feeds will appear here when you join a call.</div>
@@ -220,6 +253,12 @@
                     </div>
 
                     <div class="call-controls">
+                        <button class="media-btn active" id="callMicBtn" disabled title="Toggle Microphone">
+                            <span>🎤</span> Mic
+                        </button>
+                        <button class="media-btn active" id="callVideoBtn" disabled title="Toggle Camera">
+                            <span>📹</span> Video
+                        </button>
                         <button class="btn btn-danger" id="leaveCallBtn" disabled>Leave Call</button>
                     </div>
                 </div>
@@ -254,7 +293,12 @@
             viewerPollTimer: null,
             statusEl: document.getElementById('bcStatus'),
             buttonEl: document.getElementById('startBtn'),
-            viewerCountEl: document.getElementById('viewerCountValue')
+            viewerCountEl: document.getElementById('viewerCountValue'),
+            micBtn: document.getElementById('broadcastMicBtn'),
+            videoBtn: document.getElementById('broadcastVideoBtn'),
+            mediaControlsEl: document.getElementById('broadcastMediaControls'),
+            audioEnabled: true,
+            videoEnabled: true
         };
         broadcastState.buttonEl.onclick = startBroadcast;
 
@@ -290,7 +334,12 @@
             participantsEl: document.getElementById('activeCallParticipants'),
             onlineUsersEl: document.getElementById('onlineUsersList'),
             helpEl: document.getElementById('callHelpText'),
-            lastSeenUsers: []
+            lastSeenUsers: [],
+            micBtn: document.getElementById('callMicBtn'),
+            videoBtn: document.getElementById('callVideoBtn'),
+            muteIndicator: document.getElementById('callLocalMuteIndicator'),
+            audioEnabled: true,
+            videoEnabled: true
         };
 
     const callNameInput = document.getElementById('callNameInput');
@@ -418,8 +467,12 @@
                     socket.emit('request_viewer_counts');
                 }, 10000);
                 socket.emit('request_viewer_counts');
+                
+                broadcastState.mediaControlsEl.style.display = 'flex';
+                broadcastState.audioEnabled = audio;
+                broadcastState.videoEnabled = true;
+                updateBroadcastMediaButtons();
             } catch (err) {
-                console.error(err);
                 setStatus(broadcastState.statusEl, err.message || 'Failed to access camera', 'error');
             }
         }
@@ -445,8 +498,43 @@
             broadcastState.buttonEl.textContent = 'Start Broadcasting';
             broadcastState.buttonEl.onclick = startBroadcast;
             broadcastState.statusEl.style.display = 'none';
+            broadcastState.mediaControlsEl.style.display = 'none';
             updateBroadcastViewerCount();
         }
+
+        function toggleBroadcastMic() {
+            if (!broadcastState.stream) return;
+            broadcastState.audioEnabled = !broadcastState.audioEnabled;
+            broadcastState.stream.getAudioTracks().forEach(track => {
+                track.enabled = broadcastState.audioEnabled;
+            });
+            updateBroadcastMediaButtons();
+        }
+
+        function toggleBroadcastVideo() {
+            if (!broadcastState.stream) return;
+            broadcastState.videoEnabled = !broadcastState.videoEnabled;
+            broadcastState.stream.getVideoTracks().forEach(track => {
+                track.enabled = broadcastState.videoEnabled;
+            });
+            updateBroadcastMediaButtons();
+        }
+
+        function updateBroadcastMediaButtons() {
+            if (broadcastState.micBtn) {
+                broadcastState.micBtn.classList.toggle('active', broadcastState.audioEnabled);
+                broadcastState.micBtn.classList.toggle('muted', !broadcastState.audioEnabled);
+                broadcastState.micBtn.innerHTML = `<span>${broadcastState.audioEnabled ? '🎤' : '🔇'}</span> Mic`;
+            }
+            if (broadcastState.videoBtn) {
+                broadcastState.videoBtn.classList.toggle('active', broadcastState.videoEnabled);
+                broadcastState.videoBtn.classList.toggle('muted', !broadcastState.videoEnabled);
+                broadcastState.videoBtn.innerHTML = `<span>${broadcastState.videoEnabled ? '📹' : '📷'}</span> Video`;
+            }
+        }
+
+        broadcastState.micBtn.onclick = toggleBroadcastMic;
+        broadcastState.videoBtn.onclick = toggleBroadcastVideo;
 
         function createBroadcastPeerConnection(peerId, isBroadcaster) {
             const pc = new RTCPeerConnection({
@@ -562,10 +650,52 @@
             return lines.join('\r\n');
         }
 
+        function toggleFullscreen(videoElement) {
+            if (!videoElement) return;
+            const wrapper = videoElement.closest('.video-wrapper') || videoElement.parentElement;
+            if (!document.fullscreenElement) {
+                if (wrapper.requestFullscreen) {
+                    wrapper.requestFullscreen();
+                } else if (wrapper.webkitRequestFullscreen) {
+                    wrapper.webkitRequestFullscreen();
+                } else if (wrapper.msRequestFullscreen) {
+                    wrapper.msRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+            }
+        }
+
+        function togglePictureInPicture(videoElement) {
+            if (!videoElement || !document.pictureInPictureEnabled) return;
+            if (document.pictureInPictureElement === videoElement) {
+                document.exitPictureInPicture();
+            } else {
+                videoElement.requestPictureInPicture().catch(err => {
+                    setStatus(document.getElementById('watchStatus'), 'PiP not supported', 'warn');
+                });
+            }
+        }
+
+        document.getElementById('watchFullscreenBtn').onclick = () => {
+            toggleFullscreen(document.getElementById('remoteVideo'));
+        };
+        document.getElementById('watchPipBtn').onclick = () => {
+            togglePictureInPicture(document.getElementById('remoteVideo'));
+        };
+        document.getElementById('callLocalFullscreenBtn').onclick = () => {
+            toggleFullscreen(document.getElementById('callLocalVideo'));
+        };
+
         // -------------------- Call Hub --------------------
 
         function renderOnlineUsers(users = []) {
-            console.log('[call] renderOnlineUsers called with', users.length, 'users:', users);
             callState.lastSeenUsers = users.slice();
             if (!users.length) {
                 callState.onlineUsersEl.innerHTML = '<div class="call-empty-state">No one is online yet.</div>';
@@ -625,6 +755,9 @@
             try {
                 callState.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 callState.localVideo.srcObject = callState.localStream;
+                callState.audioEnabled = true;
+                callState.videoEnabled = true;
+                updateCallMediaButtons();
                 return callState.localStream;
             } catch (err) {
                 let message = err?.message || 'Unable to access camera/microphone.';
@@ -635,6 +768,40 @@
                 }
                 setStatus(callState.statusEl, message, 'error');
                 throw err;
+            }
+        }
+
+        function toggleCallMic() {
+            if (!callState.localStream) return;
+            callState.audioEnabled = !callState.audioEnabled;
+            callState.localStream.getAudioTracks().forEach(track => {
+                track.enabled = callState.audioEnabled;
+            });
+            updateCallMediaButtons();
+        }
+
+        function toggleCallVideo() {
+            if (!callState.localStream) return;
+            callState.videoEnabled = !callState.videoEnabled;
+            callState.localStream.getVideoTracks().forEach(track => {
+                track.enabled = callState.videoEnabled;
+            });
+            updateCallMediaButtons();
+        }
+
+        function updateCallMediaButtons() {
+            if (callState.micBtn) {
+                callState.micBtn.classList.toggle('active', callState.audioEnabled);
+                callState.micBtn.classList.toggle('muted', !callState.audioEnabled);
+                callState.micBtn.innerHTML = `<span>${callState.audioEnabled ? '🎤' : '🔇'}</span> Mic`;
+            }
+            if (callState.videoBtn) {
+                callState.videoBtn.classList.toggle('active', callState.videoEnabled);
+                callState.videoBtn.classList.toggle('muted', !callState.videoEnabled);
+                callState.videoBtn.innerHTML = `<span>${callState.videoEnabled ? '📹' : '📷'}</span> Video`;
+            }
+            if (callState.muteIndicator) {
+                callState.muteIndicator.classList.toggle('show', !callState.audioEnabled);
             }
         }
 
@@ -656,6 +823,8 @@
             callState.leaveBtn.disabled = true;
             callState.incomingBanner.classList.add('hidden');
             callState.incomingCallId = null;
+            callState.micBtn.disabled = true;
+            callState.videoBtn.disabled = true;
             renderCallParticipants();
             setStatus(callState.statusEl, message, 'info');
             updatePresenceChip();
@@ -786,6 +955,8 @@
             }
         });
         callState.leaveBtn.addEventListener('click', leaveCall);
+        callState.micBtn.addEventListener('click', toggleCallMic);
+        callState.videoBtn.addEventListener('click', toggleCallVideo);
         closeRemoteBtn.addEventListener('click', () => closeRemoteVideo({ manual: true }));
 
         // Restore saved profile
@@ -869,7 +1040,6 @@
         });
 
         socket.on('online_users', (data) => {
-            console.log('[call] Received online_users:', data.users);
             renderOnlineUsers(data.users || []);
         });
 
@@ -901,6 +1071,8 @@
             callState.callId = payload.call_id;
             callState.participants = payload.participants || [];
             callState.leaveBtn.disabled = false;
+            callState.micBtn.disabled = false;
+            callState.videoBtn.disabled = false;
             setStatus(callState.statusEl, 'In call', 'success');
             callState.incomingBanner.classList.add('hidden');
             await ensureCallLocalStream();
