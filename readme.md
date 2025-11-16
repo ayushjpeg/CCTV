@@ -92,6 +92,8 @@ allowed-peer-ip=0.0.0.0-255.255.255.255
 
 Forward UDP/TCP 3478 and the relay range (default `49152-65535`) on your router to the TURN host.
 
+> **Tip:** Point your TURN DNS record (e.g., `turn.example.com`) at the router’s WAN IP using dynamic DNS. The frontend now references the TURN server via hostname (`TURN_HOST` in `templates/index.html`), so as long as DNS follows your WAN IP and the cron script keeps `external-ip` fresh, the clients always reach the correct relay endpoint.
+
 ---
 
 ## 6. Windows laptop firewall checklist
@@ -124,7 +126,43 @@ Enable Chrome’s `chrome://webrtc-internals/` or Edge equivalent to inspect can
 
 ---
 
-## 8. Contributing / next steps
+## 8. Auto-updating TURN external IP
+
+Home ISPs often rotate your public IPv4 whenever the router reboots. Coturn needs that exact number in `external-ip=<wan>/<lan>` or peers will receive dead relay candidates. Use the helper script `scripts/update_turn_external_ip.py` on the TURN host to keep the config synced automatically:
+
+```bash
+python scripts/update_turn_external_ip.py \
+	--config /etc/turnserver.conf \
+	--internal-ip 192.168.1.2 \
+	--restart-command "systemctl restart coturn"
+```
+
+- The script fetches the WAN IP (via https://api.ipify.org), updates the `external-ip` line if it changed, and runs the optional restart command.
+- Schedule it via cron (`*/5 * * * * /usr/bin/python3 /opt/cctv/scripts/update_turn_external_ip.py …`) or a systemd timer to minimize downtime.
+- If your TURN server lives on a VPS with a static IP, skip this script.
+
+### Keep Cloudflare DNS synced too
+
+If you expose TURN via a hostname such as `turn.ayux.in`, keep its A record updated alongside coturn by using `scripts/update_cloudflare_dns.py`:
+
+```bash
+python scripts/update_cloudflare_dns.py \
+	--api-token $CF_API_TOKEN \
+	--zone-id <zone_id> \
+	--record-name turn.ayux.in \
+	--ttl 120 \
+	--proxied false
+```
+
+Steps:
+1. Generate a Cloudflare API token with **Zone.DNS Edit** permission for your domain.
+2. Find the zone ID on the Cloudflare dashboard (Overview → API → Zone ID).
+3. Ensure the DNS record exists and is set to “DNS only” (grey cloud).
+4. Schedule the script together with the TURN updater (e.g., run both inside the same cron job) so the hostname always points at the latest WAN IP.
+
+---
+
+## 9. Contributing / next steps
 
 - Add authentication/authorization for camera access.
 - Introduce recording or snapshot APIs.

@@ -114,6 +114,25 @@
     </div>
 
     <script>
+        // TURN configuration - use your domain instead of a hardcoded IP
+        const TURN_HOST = 'turn.ayux.in'; // replace with your DNS record that follows the WAN IP
+        const TURN_PORT = 3478;
+        const TURN_USERNAME = 'cctv';
+        const TURN_PASSWORD = 'wheresrusty';
+
+        const TURN_SERVERS = [
+            {
+                urls: `turn:${TURN_HOST}:${TURN_PORT}`,
+                username: TURN_USERNAME,
+                credential: TURN_PASSWORD
+            },
+            {
+                urls: `turn:${TURN_HOST}:${TURN_PORT}?transport=tcp`,
+                username: TURN_USERNAME,
+                credential: TURN_PASSWORD
+            }
+        ];
+
         const socket = io(window.location.origin, {
             path: '/socket.io'
         });
@@ -249,19 +268,7 @@
             console.log(`[CreatePC] Creating peer for ${peerId}, isBroadcaster=${isBroadcaster}, transportPolicy="${transportPolicy}"`);
             
             const peerConnection = new RTCPeerConnection({
-                iceServers: [
-                    // YOUR OWN TURN SERVER - reverted
-                    {
-                        urls: 'turn:122.169.4.176:3478',
-                        username: 'cctv',
-                        credential: 'wheresrusty'
-                    },
-                    {
-                        urls: 'turn:122.169.4.176:3478?transport=tcp',
-                        username: 'cctv',
-                        credential: 'wheresrusty'
-                    }
-                ],
+                iceServers: TURN_SERVERS,
                 iceTransportPolicy: transportPolicy,  // Use the variable!
                 iceCandidatePoolSize: 10              // Gather more ICE candidates
             });
