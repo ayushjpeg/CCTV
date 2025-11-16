@@ -3,56 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rusty Cam</title>
+    <title>Rusty Cam Control Center</title>
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f0f; color: #fff; }
-        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem 2rem; }
-        .navbar h1 { font-size: 1.8rem; }
-        .container { max-width: 1400px; margin: 2rem auto; padding: 0 1rem; }
-        .tabs { display: flex; gap: 1rem; margin-bottom: 2rem; }
-        .tab-btn { padding: 0.75rem 1.5rem; background: #2a2a2a; border: none; color: #aaa; cursor: pointer; border-radius: 8px; font-weight: 600; transition: all 0.3s; }
-        .tab-btn.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
-        .tab-content { display: none; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #070708; color: #fff; }
+        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.25rem 2rem; box-shadow: 0 10px 30px rgba(103, 117, 214, 0.35); }
+        .navbar h1 { font-size: 2rem; letter-spacing: 0.02em; }
+        .container { max-width: 1500px; margin: 2rem auto 4rem; padding: 0 1.5rem; }
+        .tabs { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+        .tab-btn { padding: 0.85rem 1.75rem; background: #191919; border: 1px solid #2d2d2d; color: #9ca3af; cursor: pointer; border-radius: 999px; font-weight: 600; transition: all 0.25s; letter-spacing: 0.02em; }
+        .tab-btn:hover { color: #fff; border-color: #4f46e5; }
+        .tab-btn.active { background: linear-gradient(135deg, #6366f1, #8b5cf6); border-color: transparent; color: #fff; box-shadow: 0 10px 30px rgba(99, 102, 241, 0.35); }
+        .tab-content { display: none; animation: fade 0.3s ease-in-out; }
         .tab-content.active { display: block; }
-        
+        @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
         .broadcast-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
-        @media (max-width: 1024px) { .broadcast-grid { grid-template-columns: 1fr; } }
-        
-        .preview-box { background: #1a1a1a; border: 2px solid #333; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; }
-        #localVideo { width: 100%; height: 100%; object-fit: cover; }
-        
-        .control-panel { background: #1a1a1a; border: 2px solid #333; border-radius: 12px; padding: 2rem; }
+        @media (max-width: 1100px) { .broadcast-grid { grid-template-columns: 1fr; } }
+
+        .preview-box { background: #050505; border: 1px solid #1f1f1f; border-radius: 18px; overflow: hidden; aspect-ratio: 16/9; position: relative; box-shadow: 0 20px 40px rgba(0,0,0,0.35); }
+        .preview-box::after { content: ''; position: absolute; inset: 0; pointer-events: none; border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; }
+        #localVideo { width: 100%; height: 100%; object-fit: cover; background: #000; }
+
+        .control-panel { background: radial-gradient(circle at top, rgba(79,70,229,0.25), rgba(15,15,15,0.9)); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; padding: 2rem; box-shadow: 0 20px 40px rgba(0,0,0,0.35); }
         .control-group { margin-bottom: 1.5rem; }
-        .control-group label { display: block; margin-bottom: 0.5rem; font-weight: 600; color: #ccc; }
-        .control-group input, .control-group select { width: 100%; padding: 0.75rem; background: #2a2a2a; border: 1px solid #444; border-radius: 6px; color: #fff; font-size: 1rem; }
-        .btn { width: 100%; padding: 0.75rem; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
-        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4); }
-        .status { padding: 1rem; background: #2a2a2a; border-radius: 6px; margin-top: 1rem; text-align: center; }
-        .status.info { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
-        .status.error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
-        
-        .cameras-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; }
-        .camera-card { background: #1a1a1a; border: 2px solid #333; border-radius: 12px; padding: 1.5rem; cursor: pointer; transition: all 0.3s; text-decoration: none; color: #fff; display: block; }
-        .camera-card:hover { border-color: #667eea; transform: translateY(-4px); box-shadow: 0 8px 20px rgba(102, 126, 234, 0.2); }
+        .control-group label { display: block; margin-bottom: 0.55rem; font-weight: 600; color: #d1d5db; letter-spacing: 0.03em; }
+        .control-group input, .control-group select { width: 100%; padding: 0.85rem 1rem; background: rgba(23,23,23,0.95); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; color: #fff; font-size: 1rem; transition: border 0.2s; }
+        .control-group input:focus, .control-group select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.25); }
+
+        .btn { width: 100%; padding: 0.85rem 1.25rem; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; transition: all 0.25s; letter-spacing: 0.02em; }
+        .btn-primary { background: linear-gradient(135deg, #6366f1, #a855f7); color: #fff; box-shadow: 0 15px 30px rgba(99,102,241,0.35); }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 20px 35px rgba(99,102,241,0.45); }
+        .btn-secondary { background: rgba(24,24,27,0.85); color: #e5e7eb; border: 1px solid rgba(255,255,255,0.08); }
+        .btn-danger { background: linear-gradient(135deg, #f87171, #ef4444); color: #fff; box-shadow: 0 15px 30px rgba(248,113,113,0.35); }
+
+        .status { padding: 1rem; border-radius: 10px; margin-top: 1rem; text-align: center; font-weight: 600; letter-spacing: 0.01em; border: 1px solid transparent; }
+        .status.info { background: rgba(59,130,246,0.15); color: #bfdbfe; border-color: rgba(59,130,246,0.35); }
+        .status.success { background: rgba(34,197,94,0.15); color: #bbf7d0; border-color: rgba(34,197,94,0.35); }
+        .status.warn { background: rgba(248,180,0,0.15); color: #fde68a; border-color: rgba(250,204,21,0.4); }
+        .status.error { background: rgba(239,68,68,0.15); color: #fecaca; border-color: rgba(239,68,68,0.35); }
+
+        .viewer-pill { margin-top: 1.25rem; background: rgba(15,15,15,0.9); border: 1px dashed rgba(99,102,241,0.4); border-radius: 12px; padding: 0.9rem 1.2rem; display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+        .viewer-pill span.value { font-size: 1.4rem; color: #86efac; }
+
+        .cameras-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.7rem; }
+        .camera-card { background: rgba(11,11,11,0.9); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 1.6rem; cursor: pointer; transition: all 0.25s; text-decoration: none; color: inherit; position: relative; overflow: hidden; }
+        .camera-card::after { content: ''; position: absolute; inset: 0; border-radius: 16px; border: 1px solid transparent; transition: border 0.25s; pointer-events: none; }
+        .camera-card:hover { transform: translateY(-4px); border-color: rgba(99,102,241,0.5); box-shadow: 0 20px 35px rgba(0,0,0,0.4); }
         .camera-card .name { font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem; }
-        .camera-card .status { background: transparent; padding: 0; margin-top: 0.5rem; text-align: left; }
-        .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; background: rgba(34, 197, 94, 0.2); color: #86efac; }
-        
-        .no-cameras { text-align: center; padding: 4rem 2rem; color: #999; grid-column: 1/-1; }
+        .camera-card .status { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; }
+        .badge { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.7rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; background: rgba(34,197,94,0.18); color: #86efac; }
+        .count-chip { padding: 0.25rem 0.65rem; border-radius: 999px; font-size: 0.8rem; background: rgba(147,197,253,0.14); color: #bfdbfe; }
+        .no-cameras { text-align: center; padding: 4rem 2rem; color: #9ca3af; grid-column: 1/-1; border: 1px dashed rgba(255,255,255,0.08); border-radius: 16px; }
+
+        #videoPlayerModal { margin-top: 3rem; }
+        #videoPlayerModal video { border-radius: 18px; border: 1px solid rgba(255,255,255,0.08); background: #000; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+
+        .call-layout { display: flex; gap: 2rem; flex-wrap: wrap; }
+        .call-sidebar { flex: 1; min-width: 280px; background: rgba(15,15,15,0.95); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 1.5rem; box-shadow: 0 20px 35px rgba(0,0,0,0.35); }
+        .call-main { flex: 2; min-width: 320px; background: rgba(9,9,11,0.95); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 1.75rem; box-shadow: 0 20px 35px rgba(0,0,0,0.35); }
+        .profile-block { margin-bottom: 1.5rem; }
+        .switch { display: flex; align-items: center; gap: 0.6rem; }
+        .switch input { transform: scale(1.3); }
+        .online-users { display: flex; flex-direction: column; gap: 0.9rem; }
+        .online-user-card { border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 0.95rem; display: flex; justify-content: space-between; align-items: center; background: rgba(17,17,17,0.8); }
+        .online-user-card.busy { border-color: rgba(249,115,22,0.6); background: rgba(249,115,22,0.08); }
+        .online-user-card .meta { font-size: 0.85rem; color: #9ca3af; margin-top: 0.15rem; }
+        .online-user-card button { width: auto; padding: 0.5rem 0.9rem; font-size: 0.85rem; }
+
+        .incoming-call { border: 1px solid rgba(99,102,241,0.4); background: rgba(99,102,241,0.12); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+        .incoming-call.hidden { display: none; }
+        .incoming-call button { width: auto; padding: 0.5rem 1rem; }
+
+        .call-video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.2rem; margin-top: 1rem; }
+        .video-tile { background: rgba(5,5,5,0.95); border: 1px solid rgba(255,255,255,0.05); border-radius: 14px; padding: 0.9rem; position: relative; }
+        .video-label { font-size: 0.85rem; color: #9ca3af; margin-bottom: 0.5rem; font-weight: 600; letter-spacing: 0.04em; }
+        .call-video { width: 100%; height: 220px; background: #000; border-radius: 10px; object-fit: cover; }
+        .call-empty-state { padding: 1.5rem; border: 1px dashed rgba(255,255,255,0.08); border-radius: 12px; text-align: center; color: #9ca3af; }
+
+        .call-controls { margin-top: 1.5rem; display: flex; gap: 1rem; flex-wrap: wrap; }
+        .call-status-chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.85rem; border-radius: 999px; font-size: 0.85rem; letter-spacing: 0.02em; }
+        .call-status-chip.idle { background: rgba(156,163,175,0.15); color: #e5e7eb; }
+        .call-status-chip.live { background: rgba(34,197,94,0.2); color: #bbf7d0; }
+        .call-status-chip.pending { background: rgba(251,191,36,0.18); color: #fcd34d; }
+
+        .participants-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+        .pill { padding: 0.35rem 0.8rem; border-radius: 999px; background: rgba(255,255,255,0.08); font-size: 0.85rem; letter-spacing: 0.01em; }
+
+        @media (max-width: 768px) {
+            .call-controls { flex-direction: column; }
+            .btn { width: 100%; }
+        }
     </style>
 </head>
 <body>
     <div class="navbar">
-        <h1> Rusty Cam</h1>
+        <h1>Rusty Cam Control Center</h1>
     </div>
 
     <div class="container">
         <div class="tabs">
-            <button class="tab-btn active" onclick="switchTab(0)"> Broadcast</button>
-            <button class="tab-btn" onclick="switchTab(1)"> Watch</button>
+            <button class="tab-btn active" onclick="switchTab(0)">Broadcast</button>
+            <button class="tab-btn" onclick="switchTab(1)">Watch</button>
+            <button class="tab-btn" onclick="switchTab(2)">Call Hub</button>
         </div>
 
         <!-- Broadcast Tab -->
@@ -75,9 +129,9 @@
                             <label>Video Resolution</label>
                             <select id="resolution">
                                 <option value="320x240">Low (320x240)</option>
-                                <option value="640x480" selected>Medium (640x480) - Recommended</option>
+                                <option value="640x480" selected>Medium (640x480)</option>
                                 <option value="1280x720">High (720p)</option>
-                                <option value="1920x1080">Very High (1080p)</option>
+                                <option value="1920x1080">Full HD (1080p)</option>
                             </select>
                         </div>
                         <div class="control-group">
@@ -87,7 +141,11 @@
                                 <option value="true" selected>With Audio</option>
                             </select>
                         </div>
-                        <button class="btn btn-primary" id="startBtn" onclick="startBroadcast()">Start Broadcasting</button>
+                        <button class="btn btn-primary" id="startBtn">Start Broadcasting</button>
+                        <div class="viewer-pill" id="viewerCountPill">
+                            <span>Live viewers</span>
+                            <span class="value" id="viewerCountValue">0</span>
+                        </div>
                         <div id="bcStatus" class="status info" style="display: none;"></div>
                     </div>
                 </div>
@@ -96,49 +154,142 @@
 
         <!-- Watch Tab -->
         <div id="tab1" class="tab-content">
-            <h2 style="margin-bottom: 2rem;">Available Cameras</h2>
+            <h2 style="margin-bottom: 1.5rem;">Available Cameras</h2>
             <div id="camerasList" class="cameras-grid">
                 <div class="no-cameras">Loading cameras...</div>
             </div>
-            <!-- Remote Video Player (hidden by default) -->
             <div id="videoPlayerModal" style="display: none; margin-top: 3rem;">
-                <div id="watchStatus" style="padding: 1rem; background: rgba(59, 130, 246, 0.2); color: #93c5fd; border-radius: 6px; margin-bottom: 1rem; text-align: center;">
-                    Connecting...
+                <div id="watchStatus" class="status info">Connecting...</div>
+                <div style="background: rgba(10,10,10,0.95); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; overflow: hidden; aspect-ratio: 16/9; margin-bottom: 1.5rem;">
+                    <video id="remoteVideo" autoplay playsinline controls style="width: 100%; height: 100%; object-fit: cover; background: #000;"></video>
                 </div>
-                <div style="background: #1a1a1a; border: 2px solid #333; border-radius: 12px; overflow: hidden; aspect-ratio: 16/9; margin-bottom: 1.5rem;">
-                    <video id="remoteVideo" autoplay playsinline controls style="width: 100%; height: 100%; object-fit: cover;"></video>
+                <button class="btn btn-secondary" id="closeRemoteBtn" style="width: auto; padding: 0.75rem 2.2rem;">Close Video</button>
+            </div>
+        </div>
+
+        <!-- Call Hub -->
+        <div id="tab2" class="tab-content">
+            <div class="call-layout">
+                <div class="call-sidebar">
+                    <div class="profile-block">
+                        <h3 style="margin-bottom: 0.75rem;">Profile</h3>
+                        <label style="font-size: 0.9rem; color: #9ca3af;">Display name</label>
+                        <input type="text" id="callNameInput" placeholder="e.g., Control Room" style="margin: 0.5rem 0 1rem;">
+                        <div class="switch">
+                            <input type="checkbox" id="autoPickupToggle" checked>
+                            <label for="autoPickupToggle">Auto pickup calls</label>
+                        </div>
+                        <button class="btn btn-primary" id="saveCallProfileBtn" style="margin-top: 1rem;">Go Online</button>
+                    </div>
+
+                    <div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                            <h3>Online Users</h3>
+                            <span class="call-status-chip idle" id="callPresenceChip">Offline</span>
+                        </div>
+                        <div id="onlineUsersList" class="online-users">
+                            <div class="call-empty-state">Save a profile to appear online.</div>
+                        </div>
+                    </div>
                 </div>
-                <button class="btn btn-primary" onclick="closeRemoteVideo()" style="width: auto; padding: 0.75rem 2rem;">Close Video</button>
+
+                <div class="call-main">
+                    <div id="callStatusBanner" class="status info">Not in a call</div>
+                    <div id="incomingCallBanner" class="incoming-call hidden">
+                        <span id="incomingCallText">Incoming call...</span>
+                        <div style="display: flex; gap: 0.75rem;">
+                            <button class="btn btn-primary" id="acceptCallBtn">Accept</button>
+                            <button class="btn btn-danger" id="declineCallBtn">Decline</button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 1rem;">
+                        <strong>Participants</strong>
+                        <div id="activeCallParticipants" class="participants-chips" style="margin-top: 0.5rem;"></div>
+                    </div>
+
+                    <div class="call-video-grid" id="callVideoGrid">
+                        <div class="video-tile">
+                            <div class="video-label">You</div>
+                            <video id="callLocalVideo" class="call-video" autoplay playsinline muted></video>
+                        </div>
+                        <div id="callRemoteGrid" class="video-tile" style="min-height: 240px; display: flex; align-items: center; justify-content: center;">
+                            <div class="call-empty-state" style="width: 100%;">Remote video feeds will appear here when you join a call.</div>
+                        </div>
+                    </div>
+
+                    <div class="call-controls">
+                        <button class="btn btn-danger" id="leaveCallBtn" disabled>Leave Call</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        // TURN configuration - use your domain instead of a hardcoded IP
-        const TURN_HOST = 'turn.ayux.in'; // replace with your DNS record that follows the WAN IP
+        const TURN_HOST = 'turn.ayux.in';
         const TURN_PORT = 3478;
         const TURN_USERNAME = 'cctv';
         const TURN_PASSWORD = 'wheresrusty';
 
         const TURN_SERVERS = [
-            {
-                urls: `turn:${TURN_HOST}:${TURN_PORT}`,
-                username: TURN_USERNAME,
-                credential: TURN_PASSWORD
-            },
-            {
-                urls: `turn:${TURN_HOST}:${TURN_PORT}?transport=tcp`,
-                username: TURN_USERNAME,
-                credential: TURN_PASSWORD
-            }
+            { urls: `turn:${TURN_HOST}:${TURN_PORT}`, username: TURN_USERNAME, credential: TURN_PASSWORD },
+            { urls: `turn:${TURN_HOST}:${TURN_PORT}?transport=tcp`, username: TURN_USERNAME, credential: TURN_PASSWORD }
         ];
 
-        const socket = io(window.location.origin, {
-            path: '/socket.io'
-        });
-        let localStream = null;
-        let broadcasting = false;
-        let peerConnections = {};
+        const socket = io(window.location.origin, { path: '/socket.io' });
+
+        const viewerCounts = {};
+        let knownCameras = [];
+
+        const broadcastState = {
+            active: false,
+            cameraId: null,
+            stream: null,
+            heartbeatTimer: null,
+            statusEl: document.getElementById('bcStatus'),
+            buttonEl: document.getElementById('startBtn'),
+            viewerCountEl: document.getElementById('viewerCountValue')
+        };
+        broadcastState.buttonEl.onclick = startBroadcast;
+
+        const broadcastPeerConnections = {};
+
+        const watchState = {
+            peer: null,
+            cameraId: null,
+            remoteStream: null,
+            retryTimer: null,
+            manualClose: false
+        };
+
+        const callState = {
+            username: null,
+            autoPickup: true,
+            callId: null,
+            participants: [],
+            peers: {},
+            remoteStreams: {},
+            pendingCallId: null,
+            incomingCallId: null,
+            localStream: null,
+            localVideo: document.getElementById('callLocalVideo'),
+            remoteGrid: document.getElementById('callRemoteGrid'),
+            statusEl: document.getElementById('callStatusBanner'),
+            presenceChip: document.getElementById('callPresenceChip'),
+            incomingBanner: document.getElementById('incomingCallBanner'),
+            incomingText: document.getElementById('incomingCallText'),
+            acceptBtn: document.getElementById('acceptCallBtn'),
+            declineBtn: document.getElementById('declineCallBtn'),
+            leaveBtn: document.getElementById('leaveCallBtn'),
+            participantsEl: document.getElementById('activeCallParticipants'),
+            onlineUsersEl: document.getElementById('onlineUsersList')
+        };
+
+        const callNameInput = document.getElementById('callNameInput');
+        const autoPickupToggle = document.getElementById('autoPickupToggle');
+        const saveCallProfileBtn = document.getElementById('saveCallProfileBtn');
+        const closeRemoteBtn = document.getElementById('closeRemoteBtn');
 
         function switchTab(n) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -147,384 +298,579 @@
             document.querySelectorAll('.tab-btn')[n].classList.add('active');
         }
 
-        socket.on('broadcasters_list', (data) => {
-            updateCamerasList(data.broadcasters || []);
-        });
+        function setStatus(el, text, variant = 'info') {
+            if (!el) return;
+            el.textContent = text;
+            el.style.display = 'block';
+            el.classList.remove('info', 'success', 'warn', 'error');
+            el.classList.add(variant);
+        }
+
+        function updateBroadcastViewerCount() {
+            if (!broadcastState.viewerCountEl) return;
+            const count = broadcastState.cameraId ? (viewerCounts[broadcastState.cameraId] || 0) : 0;
+            broadcastState.viewerCountEl.textContent = count;
+        }
+
+        function updateCamerasList(cameras = []) {
+            knownCameras = cameras.slice();
+            const list = document.getElementById('camerasList');
+            if (!cameras.length) {
+                list.innerHTML = '<div class="no-cameras">No cameras broadcasting. Start one from the Broadcast tab.</div>';
+                return;
+            }
+            list.innerHTML = cameras.map(cid => {
+                const count = viewerCounts[cid] || 0;
+                const label = count === 1 ? 'watching' : 'watching';
+                return `
+                    <a href="#" class="camera-card" data-camera="${cid}">
+                        <div class="name">${cid}</div>
+                        <div class="status">
+                            <span class="badge">Live</span>
+                            <span class="count-chip">${count} ${label}</span>
+                        </div>
+                    </a>
+                `;
+            }).join('');
+            list.querySelectorAll('.camera-card').forEach(card => {
+                card.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const cameraId = card.getAttribute('data-camera');
+                    watchCamera(cameraId);
+                });
+            });
+        }
+
+        function handleViewerCountUpdate(cameraId, count) {
+            viewerCounts[cameraId] = count;
+            updateBroadcastViewerCount();
+            updateCamerasList(knownCameras);
+        }
 
         async function startBroadcast() {
-            if (broadcasting) return;
-            broadcasting = true;
-
-            const cameraName = document.getElementById('cameraName').value || 'cam-' + Date.now();
+            if (broadcastState.active) return;
+            const cameraName = document.getElementById('cameraName').value.trim() || `cam-${Date.now()}`;
             const [width, height] = document.getElementById('resolution').value.split('x').map(Number);
             const audio = document.getElementById('audioEnable').value === 'true';
-            const status = document.getElementById('bcStatus');
-            const btn = document.getElementById('startBtn');
-
             try {
-                localStream = await navigator.mediaDevices.getUserMedia({
+                broadcastState.stream = await navigator.mediaDevices.getUserMedia({
                     video: { width: { ideal: width }, height: { ideal: height } },
-                    audio: audio
+                    audio
                 });
-
-                const video = document.getElementById('localVideo');
-                video.srcObject = localStream;
-
-                socket.emit('register_broadcaster', {
-                    camera_id: cameraName,
-                    name: cameraName
-                });
-
-                status.textContent = ` Broadcasting "${cameraName}" - Ready to accept viewers`;
-                status.style.display = 'block';
-                btn.textContent = 'Stop Broadcasting';
-                btn.onclick = stopBroadcast;
-
-                setInterval(() => {
+                document.getElementById('localVideo').srcObject = broadcastState.stream;
+                socket.emit('register_broadcaster', { camera_id: cameraName, name: cameraName });
+                broadcastState.active = true;
+                broadcastState.cameraId = cameraName;
+                broadcastState.buttonEl.textContent = 'Stop Broadcasting';
+                setStatus(broadcastState.statusEl, `Broadcasting "${cameraName}"`, 'success');
+                broadcastState.buttonEl.onclick = stopBroadcast;
+                updateBroadcastViewerCount();
+                broadcastState.heartbeatTimer = setInterval(() => {
                     socket.emit('broadcaster_heartbeat', { camera_id: cameraName });
                 }, 5000);
-
-            } catch (e) {
-                status.textContent = ` Error: ${e.message}`;
-                status.classList.remove('info');
-                status.classList.add('error');
-                status.style.display = 'block';
-                broadcasting = false;
+            } catch (err) {
+                console.error(err);
+                setStatus(broadcastState.statusEl, err.message || 'Failed to access camera', 'error');
             }
         }
 
         function stopBroadcast() {
-            broadcasting = false;
-            if (localStream) {
-                localStream.getTracks().forEach(t => t.stop());
+            if (!broadcastState.active) return;
+            if (broadcastState.stream) {
+                broadcastState.stream.getTracks().forEach(track => track.stop());
             }
-            document.getElementById('startBtn').textContent = 'Start Broadcasting';
-            document.getElementById('startBtn').onclick = startBroadcast;
-            document.getElementById('bcStatus').style.display = 'none';
-            socket.emit('disconnect');
+            if (broadcastState.heartbeatTimer) {
+                clearInterval(broadcastState.heartbeatTimer);
+                broadcastState.heartbeatTimer = null;
+            }
+            socket.emit('stop_broadcast', { camera_id: broadcastState.cameraId });
+            broadcastState.active = false;
+            broadcastState.cameraId = null;
+            broadcastState.stream = null;
+            document.getElementById('localVideo').srcObject = null;
+            broadcastState.buttonEl.textContent = 'Start Broadcasting';
+            broadcastState.buttonEl.onclick = startBroadcast;
+            broadcastState.statusEl.style.display = 'none';
+            updateBroadcastViewerCount();
         }
 
-        socket.on('viewer_offer', async (data) => {
-            const { viewer_sid, sdp } = data;
-            console.log(`[Broadcast] Received viewer_offer from ${viewer_sid}`);
-            const peerConnection = createPeerConnection(viewer_sid, true);
-
-            localStream.getTracks().forEach(track => {
-                console.log(`[Broadcast] Adding track: ${track.kind}`);
-                peerConnection.addTrack(track, localStream);
-            });
-
-            await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp }));
-            console.log('[Broadcast] Remote offer set');
-            
-            const answer = await peerConnection.createAnswer();
-            
-            // Modify SDP to prefer VP8 codec (better compatibility)
-            answer.sdp = preferCodec(answer.sdp, 'video', 'VP8');
-            answer.sdp = preferCodec(answer.sdp, 'audio', 'opus');
-            
-            // Lower bitrate for better performance through TURN
-            answer.sdp = setBitrate(answer.sdp, 'video', 500); // 500 kbps max
-            answer.sdp = setBitrate(answer.sdp, 'audio', 32);  // 32 kbps max
-            
-            await peerConnection.setLocalDescription(answer);
-            console.log('[Broadcast] Sending answer');
-
-            socket.emit('broadcaster_answer', {
-                viewer_sid: viewer_sid,
-                sdp: answer.sdp
-            });
-        });
-
-        socket.on('ice_candidate', (data) => {
-            const { from_sid, candidate } = data;
-            
-            // Log the RAW candidate object
-            console.log(`[Ice] 📩 Received RAW ICE from ${from_sid}:`, candidate);
-            
-            // Check if this is for our current watch peer connection
-            if (currentWatchPeer && currentWatchCameraId) {
-                // We're a viewer - add the ICE candidate to our watch peer
-                console.log(`[Watch] ➕ Adding ICE candidate from broadcaster`);
-                currentWatchPeer.addIceCandidate(new RTCIceCandidate(candidate))
-                    .then(() => console.log(`[Watch] ✅ ICE candidate added successfully`))
-                    .catch(e => console.error('[Watch] ❌ ICE error:', e));
-            }
-            
-            // Check if this is for a broadcaster's peer connection with a viewer
-            const pc = peerConnections[from_sid];
-            if (pc) {
-                console.log(`[Broadcast] ➕ Adding ICE candidate from viewer ${from_sid}`);
-                pc.addIceCandidate(new RTCIceCandidate(candidate))
-                    .then(() => console.log(`[Broadcast] ✅ ICE candidate added successfully`))
-                    .catch(e => console.warn('[Broadcast] ❌ ICE error:', e));
-            }
-        });
-
-        function createPeerConnection(peerId, isBroadcaster) {
-            // Use 'all' mode for everyone - relay mode doesn't work with laptop's NAT
-            const transportPolicy = 'all';
-            
-            console.log(`[CreatePC] Creating peer for ${peerId}, isBroadcaster=${isBroadcaster}, transportPolicy="${transportPolicy}"`);
-            
-            const peerConnection = new RTCPeerConnection({
+        function createBroadcastPeerConnection(peerId, isBroadcaster) {
+            const pc = new RTCPeerConnection({
                 iceServers: TURN_SERVERS,
-                iceTransportPolicy: transportPolicy,  // Use the variable!
-                iceCandidatePoolSize: 10              // Gather more ICE candidates
+                iceTransportPolicy: 'all',
+                iceCandidatePoolSize: 10
             });
-
-            peerConnection.onicecandidate = (event) => {
+            pc.onicecandidate = (event) => {
                 if (event.candidate) {
-                    const cand = event.candidate;
-                    console.log(`[PC-${peerId}] 🧊 Generated ICE Candidate (isBroadcaster=${isBroadcaster}):`, {
-                        type: cand.type,
-                        protocol: cand.protocol,
-                        address: cand.address || cand.ip,
-                        port: cand.port,
-                        candidate: cand.candidate,  // The SDP string
-                        transportPolicy: 'all'
-                    });
-                    
-                    // If broadcaster with relay mode but NOT generating relay candidates, that's the bug!
-                    if (isBroadcaster && transportPolicy === 'relay' && cand.type !== 'relay') {
-                        console.error(`[PC-${peerId}] 🚨 BUG: Broadcaster in relay mode but generated ${cand.type} candidate!`);
-                    }
-                    
-                    socket.emit('ice_candidate', {
-                        target_sid: peerId,
-                        camera_id: peerId,
-                        candidate: event.candidate
-                    });
-                } else {
-                    console.log(`[PC-${peerId}] ✅ ICE gathering complete (transportPolicy: ${isBroadcaster ? 'relay' : 'all'})`);
+                    socket.emit('ice_candidate', { target_sid: peerId, candidate: event.candidate });
                 }
             };
-
-            peerConnection.onconnectionstatechange = () => {
-                console.log(`[PC-${peerId}] Connection state: ${peerConnection.connectionState}`);
-                const statusEl = document.getElementById('watchStatus');
-                if (statusEl && !isBroadcaster) {
-                    switch(peerConnection.connectionState) {
-                        case 'connecting':
-                            statusEl.textContent = '🔄 Connecting...';
-                            statusEl.style.background = 'rgba(59, 130, 246, 0.2)';
-                            break;
-                        case 'connected':
-                            statusEl.textContent = '✅ Connected - Receiving video';
-                            statusEl.style.background = 'rgba(34, 197, 94, 0.2)';
-                            statusEl.style.color = '#86efac';
-                            break;
-                        case 'disconnected':
-                            statusEl.textContent = '⚠️ Disconnected';
-                            statusEl.style.background = 'rgba(251, 191, 36, 0.2)';
-                            statusEl.style.color = '#fcd34d';
-                            break;
-                        case 'failed':
-                            statusEl.textContent = '❌ Connection failed';
-                            statusEl.style.background = 'rgba(239, 68, 68, 0.2)';
-                            statusEl.style.color = '#fca5a5';
-                            break;
+            pc.onconnectionstatechange = () => {
+                if (!isBroadcaster) {
+                    const state = pc.connectionState;
+                    if (state === 'connected') {
+                        setStatus(document.getElementById('watchStatus'), 'Connected', 'success');
+                    } else if (state === 'failed' || state === 'disconnected') {
+                        setStatus(document.getElementById('watchStatus'), 'Reconnecting...', 'warn');
+                        scheduleWatchRetry();
                     }
                 }
             };
-
-            peerConnection.oniceconnectionstatechange = () => {
-                const state = peerConnection.iceConnectionState;
-                console.log(`[PC-${peerId}] 🔌 ICE state: ${state} (transportPolicy: ${transportPolicy})`);
-                
-                // If connection fails, log detailed info
-                if (state === 'failed' || state === 'disconnected') {
-                    console.error(`[PC-${peerId}] ❌ ICE connection ${state}. transportPolicy was: ${transportPolicy}`);
-                    console.error(`[PC-${peerId}] This usually means NAT/firewall issue or TURN relay not working.`);
-                    
-                    // Try ICE restart
-                    if (state === 'failed' && !isBroadcaster && peerId === currentWatchCameraId) {
-                        console.log('[Watch] Attempting ICE restart...');
-                        // ICE restart will be handled by creating a new offer with iceRestart flag
-                    }
-                } else if (state === 'connected' || state === 'completed') {
-                    console.log(`[PC-${peerId}] 🎉 SUCCESS! ICE connection established with transportPolicy: ${transportPolicy}`);
-                }
-            };
-
-            peerConnection.onsignalingstatechange = () => {
-                console.log(`[PC-${peerId}] Signaling state: ${peerConnection.signalingState}`);
-            };
-
             if (isBroadcaster) {
-                peerConnection.ontrack = (event) => {
-                    console.log(`[Broadcast] Received track: ${event.track.kind} (should not happen for broadcaster)`);
-                };
+                pc.ontrack = () => {};
             }
-
-            peerConnections[peerId] = peerConnection;
-            return peerConnection;
+            broadcastPeerConnections[peerId] = pc;
+            return pc;
         }
 
-        function updateCamerasList(cameras) {
-            const list = document.getElementById('camerasList');
-            if (!cameras || cameras.length === 0) {
-                list.innerHTML = '<div class="no-cameras"><p> No cameras broadcasting</p><p style="font-size: 0.9rem; color: #666; margin-top: 0.5rem;">Start broadcasting from the Broadcast tab</p></div>';
-                return;
-            }
-
-            list.innerHTML = cameras.map(cid => `
-                <a href="#" class="camera-card" onclick="watchCamera('${cid}'); return false;">
-                    <div class="name">${cid}</div>
-                    <div class="status"><span class="badge"> Live</span></div>
-                </a>
-            `).join('');
-        }
-
-        let remoteStream = null;
-        let currentWatchPeer = null;
-        let currentWatchCameraId = null;
-
-        async function watchCamera(cameraId) {
+        async function watchCamera(cameraId, isRetry = false) {
             try {
-                // Show video player
-                document.getElementById('videoPlayerModal').style.display = 'block';
-                
-                // Close previous connection if exists
-                if (currentWatchPeer) {
-                    currentWatchPeer.close();
-                    delete peerConnections[currentWatchCameraId];
+                watchState.manualClose = false;
+                if (isRetry) {
+                    closeRemoteVideo({ keepModal: true, skipEmit: true, manual: false });
+                } else {
+                    closeRemoteVideo({ keepModal: true, skipEmit: false, manual: false });
                 }
-
-                const pc = createPeerConnection(cameraId, false);
-                currentWatchPeer = pc;
-                currentWatchCameraId = cameraId;
-
+                watchState.cameraId = cameraId;
+                socket.emit('viewer_join', { camera_id: cameraId });
+                document.getElementById('videoPlayerModal').style.display = 'block';
+                setStatus(document.getElementById('watchStatus'), `Connecting to ${cameraId}...`, 'info');
+                const pc = createBroadcastPeerConnection(cameraId, false);
+                watchState.peer = pc;
                 pc.ontrack = (event) => {
-                    console.log(`[Watch] ontrack event received, streams: ${event.streams.length}`);
-                    remoteStream = event.streams[0];
+                    watchState.remoteStream = event.streams[0];
                     const video = document.getElementById('remoteVideo');
-                    video.srcObject = remoteStream;
-                    video.play().catch(e => {
-                        console.error('[Watch] Video play error:', e);
-                        // Try to play on user interaction
-                        video.muted = true;
-                        video.play().catch(err => console.error('[Watch] Muted play failed:', err));
-                    });
-                    console.log(`[Watch] Playing video from ${cameraId}`);
+                    video.srcObject = watchState.remoteStream;
+                    video.play().catch(() => video.play().catch(() => {}));
                 };
-
-                // Force codec compatibility
-                pc.addTransceiver('video', { 
-                    direction: 'recvonly'
-                });
-                pc.addTransceiver('audio', { 
-                    direction: 'recvonly'
-                });
-
+                pc.addTransceiver('video', { direction: 'recvonly' });
+                pc.addTransceiver('audio', { direction: 'recvonly' });
                 const offer = await pc.createOffer();
-                
-                // Modify SDP to prefer VP8 codec (better compatibility across devices)
                 offer.sdp = preferCodec(offer.sdp, 'video', 'VP8');
                 offer.sdp = preferCodec(offer.sdp, 'audio', 'opus');
-                
                 await pc.setLocalDescription(offer);
-
-                console.log(`[Watch] Sending offer for camera ${cameraId}`);
-                socket.emit('viewer_offer', {
-                    camera_id: cameraId,
-                    sdp: offer.sdp
-                });
-            } catch (e) {
-                console.error('[Watch] Error:', e);
-                alert('Failed to connect to camera: ' + e.message);
+                socket.emit('viewer_offer', { camera_id: cameraId, sdp: offer.sdp });
+            } catch (err) {
+                console.error(err);
+                setStatus(document.getElementById('watchStatus'), err.message || 'Unable to view camera', 'error');
             }
         }
 
-        function closeRemoteVideo() {
-            document.getElementById('videoPlayerModal').style.display = 'none';
-            if (currentWatchPeer) {
-                currentWatchPeer.close();
-                currentWatchPeer = null;
-            }
-            currentWatchCameraId = null;
-            if (remoteStream) {
-                remoteStream.getTracks().forEach(track => track.stop());
-                remoteStream = null;
-            }
-        }
-
-        socket.on('broadcaster_answer', async (data) => {
-            const { sdp } = data;
-            console.log('[Watch] Received broadcaster_answer');
-            if (currentWatchPeer && currentWatchPeer.signalingState === 'have-local-offer') {
-                try {
-                    await currentWatchPeer.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp }));
-                    console.log('[Watch] Answer set successfully');
-                } catch (e) {
-                    console.error('[Watch] Error setting answer:', e);
+        function scheduleWatchRetry() {
+            if (watchState.manualClose || watchState.retryTimer || !watchState.cameraId) return;
+            watchState.retryTimer = setTimeout(() => {
+                watchState.retryTimer = null;
+                if (watchState.cameraId) {
+                    watchCamera(watchState.cameraId, true);
                 }
-            } else {
-                console.warn('[Watch] No peer connection waiting for answer, or bad state');
-            }
-        });
+            }, 3000);
+        }
 
-        // Helper function to prefer specific codec in SDP
+        function closeRemoteVideo({ keepModal = false, skipEmit = false, manual = true } = {}) {
+            if (watchState.retryTimer) {
+                clearTimeout(watchState.retryTimer);
+                watchState.retryTimer = null;
+            }
+            const previousCamera = watchState.cameraId;
+            if (!keepModal) {
+                document.getElementById('videoPlayerModal').style.display = 'none';
+            }
+            if (watchState.peer) {
+                watchState.peer.close();
+                watchState.peer = null;
+            }
+            if (watchState.remoteStream) {
+                watchState.remoteStream.getTracks().forEach(track => track.stop());
+                watchState.remoteStream = null;
+            }
+            if (previousCamera && !skipEmit) {
+                socket.emit('viewer_leave', { camera_id: previousCamera });
+            }
+            watchState.manualClose = manual;
+            watchState.cameraId = keepModal ? previousCamera : null;
+        }
+
         function preferCodec(sdp, kind, codec) {
             const lines = sdp.split('\r\n');
             const mLineIndex = lines.findIndex(line => line.startsWith(`m=${kind}`));
             if (mLineIndex === -1) return sdp;
-
-            const codecLines = [];
-            const otherLines = [];
-            
-            for (let i = mLineIndex + 1; i < lines.length; i++) {
-                const line = lines[i];
-                if (line.startsWith('m=')) break;
-                
-                if (line.includes(`rtpmap:`) && line.toLowerCase().includes(codec.toLowerCase())) {
-                    const payloadType = line.match(/rtpmap:(\d+)/)?.[1];
-                    if (payloadType) {
-                        codecLines.push(payloadType);
-                    }
-                }
-            }
-
-            if (codecLines.length === 0) return sdp;
-
-            // Reorder payload types in m= line
-            const mLine = lines[mLineIndex];
-            const parts = mLine.split(' ');
-            const mediaPayloads = parts.slice(3);
-            
-            // Put preferred codec first
-            const reordered = [...codecLines, ...mediaPayloads.filter(p => !codecLines.includes(p))];
-            parts.splice(3, mediaPayloads.length, ...reordered);
-            lines[mLineIndex] = parts.join(' ');
-
-            return lines.join('\r\n');
-        }
-
-        // Helper function to set bandwidth limit in SDP
-        function setBitrate(sdp, kind, bitrate) {
-            const lines = sdp.split('\r\n');
-            const mLineIndex = lines.findIndex(line => line.startsWith(`m=${kind}`));
-            if (mLineIndex === -1) return sdp;
-
-            // Find or create b=AS line
-            let bLineIndex = -1;
+            const codecRegex = new RegExp(`rtpmap:(\\d+) ${codec}`, 'i');
+            const payloadTypes = [];
             for (let i = mLineIndex + 1; i < lines.length; i++) {
                 if (lines[i].startsWith('m=')) break;
-                if (lines[i].startsWith('b=AS:')) {
-                    bLineIndex = i;
-                    break;
-                }
+                const match = lines[i].match(codecRegex);
+                if (match) payloadTypes.push(match[1]);
             }
-
-            const bLine = `b=AS:${bitrate}`;
-            if (bLineIndex !== -1) {
-                lines[bLineIndex] = bLine;
-            } else {
-                lines.splice(mLineIndex + 1, 0, bLine);
-            }
-
+            if (!payloadTypes.length) return sdp;
+            const mLineParts = lines[mLineIndex].split(' ');
+            const others = mLineParts.slice(3).filter(pt => !payloadTypes.includes(pt));
+            lines[mLineIndex] = [...mLineParts.slice(0, 3), ...payloadTypes, ...others].join(' ');
             return lines.join('\r\n');
         }
+
+        // -------------------- Call Hub --------------------
+
+        function renderOnlineUsers(users = []) {
+            if (!users.length) {
+                callState.onlineUsersEl.innerHTML = '<div class="call-empty-state">No one is online yet.</div>';
+                return;
+            }
+            callState.onlineUsersEl.innerHTML = users.map(user => {
+                const busy = user.in_call;
+                const meta = busy ? 'In a call' : (user.auto_pickup ? 'Auto pickup on' : 'Manual pickup');
+                const disabled = !callState.username || user.name === callState.username || busy;
+                return `
+                    <div class="online-user-card ${busy ? 'busy' : ''}" data-user="${user.name}">
+                        <div>
+                            <div style="font-weight:600;">${user.name}</div>
+                            <div class="meta">${meta}</div>
+                        </div>
+                        <button class="btn btn-secondary" ${disabled ? 'disabled' : ''}>Call</button>
+                    </div>
+                `;
+            }).join('');
+            callState.onlineUsersEl.querySelectorAll('.online-user-card').forEach(card => {
+                const target = card.getAttribute('data-user');
+                const button = card.querySelector('button');
+                if (button && !button.disabled) {
+                    button.addEventListener('click', () => startCall(target));
+                }
+            });
+        }
+
+        function updatePresenceChip() {
+            if (!callState.presenceChip) return;
+            if (!callState.username) {
+                callState.presenceChip.textContent = 'Offline';
+                callState.presenceChip.className = 'call-status-chip idle';
+                return;
+            }
+            callState.presenceChip.textContent = callState.callId ? 'In Call' : 'Online';
+            callState.presenceChip.className = 'call-status-chip ' + (callState.callId ? 'live' : 'idle');
+        }
+
+        async function ensureCallLocalStream() {
+            if (callState.localStream) return callState.localStream;
+            callState.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            callState.localVideo.srcObject = callState.localStream;
+            return callState.localStream;
+        }
+
+        function teardownCall(message = 'Call ended') {
+            if (callState.pendingCallId) {
+                callState.pendingCallId = null;
+            }
+            Object.values(callState.peers).forEach(pc => pc.close());
+            callState.peers = {};
+            callState.remoteStreams = {};
+            callState.remoteGrid.innerHTML = '<div class="call-empty-state">Remote video feeds will appear here when you join a call.</div>';
+            if (callState.localStream) {
+                callState.localStream.getTracks().forEach(track => track.stop());
+                callState.localStream = null;
+                callState.localVideo.srcObject = null;
+            }
+            callState.callId = null;
+            callState.participants = [];
+            callState.leaveBtn.disabled = true;
+            callState.incomingBanner.classList.add('hidden');
+            callState.incomingCallId = null;
+            renderCallParticipants();
+            setStatus(callState.statusEl, message, 'info');
+            updatePresenceChip();
+        }
+
+        function renderCallParticipants() {
+            if (!callState.participants.length) {
+                callState.participantsEl.innerHTML = '<span class="pill">No active call</span>';
+                return;
+            }
+            callState.participantsEl.innerHTML = callState.participants.map(name => `<span class="pill">${name}</span>`).join('');
+        }
+
+        function ensureRemoteVideo(user) {
+            let tile = document.getElementById(`remote-${user}`);
+            if (!tile) {
+                tile = document.createElement('div');
+                tile.className = 'video-tile';
+                tile.id = `remote-${user}`;
+                tile.innerHTML = `<div class="video-label">${user}</div><video autoplay playsinline class="call-video"></video>`;
+                if (callState.remoteGrid.children.length === 1 && callState.remoteGrid.firstElementChild.classList.contains('call-empty-state')) {
+                    callState.remoteGrid.innerHTML = '';
+                }
+                callState.remoteGrid.appendChild(tile);
+            }
+            return tile.querySelector('video');
+        }
+
+        function removeRemoteVideo(user) {
+            const tile = document.getElementById(`remote-${user}`);
+            if (tile) {
+                const video = tile.querySelector('video');
+                if (video && video.srcObject) {
+                    video.srcObject.getTracks().forEach(track => track.stop());
+                }
+                tile.remove();
+            }
+            if (!callState.remoteGrid.children.length) {
+                callState.remoteGrid.innerHTML = '<div class="call-empty-state">Remote video feeds will appear here when you join a call.</div>';
+            }
+        }
+
+        function createCallPeer(target) {
+            const pc = new RTCPeerConnection({ iceServers: TURN_SERVERS, iceTransportPolicy: 'all' });
+            if (callState.localStream) {
+                callState.localStream.getTracks().forEach(track => pc.addTrack(track, callState.localStream));
+            }
+            pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('call_webrtc_ice', { call_id: callState.callId, target, candidate: event.candidate });
+                }
+            };
+            pc.ontrack = (event) => {
+                const video = ensureRemoteVideo(target);
+                video.srcObject = event.streams[0];
+            };
+            pc.onconnectionstatechange = () => {
+                if (pc.connectionState === 'failed') {
+                    pc.restartIce?.();
+                }
+            };
+            callState.peers[target] = pc;
+            return pc;
+        }
+
+        async function connectToParticipant(user) {
+            if (!callState.callId || user === callState.username) return;
+            await ensureCallLocalStream();
+            let pc = callState.peers[user];
+            if (!pc) pc = createCallPeer(user);
+            const shouldInitiate = callState.username.localeCompare(user) < 0;
+            if (shouldInitiate && !pc.__initiated) {
+                pc.__initiated = true;
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit('call_webrtc_offer', { call_id: callState.callId, target: user, sdp: offer.sdp });
+            }
+        }
+
+        function syncCallPeers() {
+            callState.participants.forEach(user => {
+                if (user === callState.username) return;
+                connectToParticipant(user);
+            });
+            Object.keys(callState.peers).forEach(user => {
+                if (!callState.participants.includes(user)) {
+                    callState.peers[user].close();
+                    delete callState.peers[user];
+                    removeRemoteVideo(user);
+                }
+            });
+            renderCallParticipants();
+            updatePresenceChip();
+        }
+
+        function startCall(target) {
+            if (!callState.username) {
+                setStatus(callState.statusEl, 'Save a profile first.', 'warn');
+                return;
+            }
+            socket.emit('call_user', { target });
+            setStatus(callState.statusEl, `Calling ${target}...`, 'info');
+        }
+
+        function saveCallProfile() {
+            const name = callNameInput.value.trim();
+            if (!name) {
+                setStatus(callState.statusEl, 'Enter a display name to go online.', 'warn');
+                return;
+            }
+            const autoPickup = autoPickupToggle.checked;
+            socket.emit('register_user', { name, auto_pickup: autoPickup });
+            localStorage.setItem('callName', name);
+            localStorage.setItem('callAutoPickup', String(autoPickup));
+        }
+
+        function leaveCall() {
+            if (!callState.callId) return;
+            socket.emit('leave_call');
+            teardownCall('Left call');
+        }
+
+        saveCallProfileBtn.addEventListener('click', saveCallProfile);
+        callNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCallProfile(); });
+        autoPickupToggle.addEventListener('change', () => {
+            if (callState.username) {
+                socket.emit('update_auto_pickup', { enabled: autoPickupToggle.checked });
+            }
+        });
+        callState.leaveBtn.addEventListener('click', leaveCall);
+        closeRemoteBtn.addEventListener('click', () => closeRemoteVideo({ manual: true }));
+
+        // Restore saved profile
+        const storedName = localStorage.getItem('callName');
+        const storedAuto = localStorage.getItem('callAutoPickup');
+        if (storedName) callNameInput.value = storedName;
+        if (storedAuto !== null) autoPickupToggle.checked = storedAuto === 'true';
+
+        // -------------------- Socket Events --------------------
+
+        socket.on('connect', () => {
+            socket.emit('request_viewer_counts');
+        });
+
+        socket.on('broadcasters_list', (data) => {
+            updateCamerasList(data?.broadcasters || []);
+        });
+
+        socket.on('broadcaster_left', (data) => {
+            if (watchState.cameraId === data?.camera_id) {
+                setStatus(document.getElementById('watchStatus'), 'Broadcaster went offline.', 'warn');
+                scheduleWatchRetry();
+            }
+        });
+
+        socket.on('viewer_count', (data) => {
+            handleViewerCountUpdate(data.camera_id, data.count);
+        });
+
+        socket.on('viewer_counts', (data) => {
+            Object.keys(viewerCounts).forEach(key => delete viewerCounts[key]);
+            Object.entries(data.counts || {}).forEach(([cid, count]) => viewerCounts[cid] = count);
+            updateBroadcastViewerCount();
+            updateCamerasList(knownCameras);
+        });
+
+        socket.on('viewer_offer', async (data) => {
+            if (!broadcastState.stream) return;
+            const pc = createBroadcastPeerConnection(data.viewer_sid, true);
+            broadcastState.stream.getTracks().forEach(track => pc.addTrack(track, broadcastState.stream));
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: data.sdp }));
+            let answer = await pc.createAnswer();
+            answer.sdp = preferCodec(answer.sdp, 'video', 'VP8');
+            answer.sdp = preferCodec(answer.sdp, 'audio', 'opus');
+            await pc.setLocalDescription(answer);
+            socket.emit('broadcaster_answer', { viewer_sid: data.viewer_sid, sdp: answer.sdp });
+        });
+
+        socket.on('broadcaster_answer', async (data) => {
+            if (watchState.peer && watchState.peer.signalingState === 'have-local-offer') {
+                await watchState.peer.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: data.sdp }));
+                setStatus(document.getElementById('watchStatus'), 'Connected', 'success');
+            }
+        });
+
+        socket.on('ice_candidate', (data) => {
+            const pcViewer = broadcastPeerConnections[data.from_sid];
+            if (pcViewer) {
+                pcViewer.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(console.warn);
+            }
+            if (watchState.peer) {
+                watchState.peer.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(console.warn);
+            }
+        });
+
+        socket.on('user_registered', (data) => {
+            callState.username = data.name;
+            callState.autoPickup = data.auto_pickup;
+            autoPickupToggle.checked = data.auto_pickup;
+            setStatus(callState.statusEl, `Online as ${data.name}`, 'success');
+            updatePresenceChip();
+        });
+
+        socket.on('online_users', (data) => {
+            renderOnlineUsers(data.users || []);
+        });
+
+        socket.on('call_pending', (data) => {
+            callState.pendingCallId = data.call_id;
+            setStatus(callState.statusEl, `Waiting for ${data.target}...`, 'info');
+        });
+
+        socket.on('incoming_call', (data) => {
+            callState.incomingBanner.classList.remove('hidden');
+            callState.incomingCallId = data.call_id;
+            callState.incomingText.textContent = `${data.from} is calling...`;
+            callState.acceptBtn.onclick = () => {
+                socket.emit('respond_call', { call_id: data.call_id, accept: true });
+                callState.incomingBanner.classList.add('hidden');
+            };
+            callState.declineBtn.onclick = () => {
+                socket.emit('respond_call', { call_id: data.call_id, accept: false });
+                callState.incomingBanner.classList.add('hidden');
+            };
+        });
+
+        socket.on('call_declined', () => {
+            setStatus(callState.statusEl, 'Call declined.', 'warn');
+            callState.pendingCallId = null;
+        });
+
+        socket.on('call_joined', async (payload) => {
+            callState.callId = payload.call_id;
+            callState.participants = payload.participants || [];
+            callState.leaveBtn.disabled = false;
+            setStatus(callState.statusEl, 'In call', 'success');
+            callState.incomingBanner.classList.add('hidden');
+            await ensureCallLocalStream();
+            syncCallPeers();
+        });
+
+        socket.on('call_participant_joined', (data) => {
+            callState.participants = data.participants || callState.participants;
+            syncCallPeers();
+            setStatus(callState.statusEl, `${data.user} joined the call`, 'info');
+        });
+
+        socket.on('call_participant_left', (data) => {
+            callState.participants = data.participants || callState.participants.filter(p => p !== data.user);
+            const pc = callState.peers[data.user];
+            if (pc) {
+                pc.close();
+                delete callState.peers[data.user];
+            }
+            removeRemoteVideo(data.user);
+            syncCallPeers();
+            setStatus(callState.statusEl, `${data.user} left the call`, 'warn');
+        });
+
+        socket.on('call_ended', () => {
+            teardownCall('Call ended');
+        });
+
+        socket.on('call_error', (data) => {
+            setStatus(callState.statusEl, data.message || 'Call error', 'error');
+        });
+
+        socket.on('call_webrtc_offer', async (data) => {
+            if (data.call_id !== callState.callId) return;
+            await ensureCallLocalStream();
+            let pc = callState.peers[data.from];
+            if (!pc) pc = createCallPeer(data.from);
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: data.sdp }));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            socket.emit('call_webrtc_answer', { call_id: callState.callId, target: data.from, sdp: answer.sdp });
+        });
+
+        socket.on('call_webrtc_answer', async (data) => {
+            const pc = callState.peers[data.from];
+            if (pc && pc.signalingState === 'have-local-offer') {
+                await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: data.sdp }));
+            }
+        });
+
+        socket.on('call_webrtc_ice', (data) => {
+            const pc = callState.peers[data.from];
+            if (pc) {
+                pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(console.warn);
+            }
+        });
+
+        window.addEventListener('beforeunload', () => {
+            if (broadcastState.active) stopBroadcast();
+            closeRemoteVideo({ manual: true });
+            if (callState.callId) socket.emit('leave_call');
+        });
     </script>
 </body>
 </html>

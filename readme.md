@@ -7,6 +7,8 @@ It lets one device broadcast a live camera feed while other devices connect over
 - WebRTC peer-to-peer streaming with VP8/Opus codecs.
 - Flask + Socket.IO signaling server (`/socket.io`).
 - TURN-first ICE policy with automatic bitrate tuning for constrained uplinks.
+- Live viewer counts with automatic broadcast health monitoring.
+- Built-in call hub for on-demand or auto-pickup multi-party video calls between operators.
 - Responsive UI with Broadcast/Watch tabs (`templates/index.html`).
 - Dockerfile for container deployments plus bare-metal instructions.
 
@@ -69,7 +71,7 @@ Mount TLS certs and configure a proxy (nginx/Traefik) for HTTPS in production to
 
 ## 5. TURN / STUN configuration
 
-The app is currently hard-coded to prefer TURN (relay) candidates so even restrictive networks can broadcast. Update the ICE config in `templates/index.html` if you need multiple TURN servers or fallback STUN entries.
+The app is currently hard-coded to prefer TURN (relay) candidates so even restrictive networks can broadcast. Update the ICE config in `templates/index.html` if you need multiple TURN servers or fallback STUN entries. Keep the new viewer-count heartbeat enabled so the UI can recover if a relay silently drops overnight.
 
 Example Coturn snippet (used in testing):
 
@@ -159,6 +161,19 @@ Steps:
 2. Find the zone ID on the Cloudflare dashboard (Overview → API → Zone ID).
 3. Ensure the DNS record exists and is set to “DNS only” (grey cloud).
 4. Schedule the script together with the TURN updater (e.g., run both inside the same cron job) so the hostname always points at the latest WAN IP.
+
+---
+
+## 10. Operator call hub & viewer analytics
+
+The refreshed UI adds a **Call Hub** tab that lets camera operators see who is online, place calls, and auto-answer trusted parties:
+
+1. Open the **Call Hub** tab, pick a display name, and toggle “Auto pickup” if this station should auto-answer.
+2. Click **Go Online** so the backend registers your presence. Everyone online appears with status chips (“Auto pickup”, “Manual pickup”, “In call”).
+3. Press **Call** next to a person to ring them. When they accept, both sides (plus any existing participants) enter a mesh call—if a third user dials while two people are speaking, they join the same call automatically, creating an instant conference.
+4. Enable **Auto pickup** on unattended kiosks so critical alerts become drop-in video calls without human interaction.
+
+The Broadcast tab now shows a **Live viewers** counter and keeps relays healthy overnight by softly retrying failed viewer sessions. Camera cards on the Watch tab display “N watching” badges so you can gauge demand at a glance.
 
 ---
 
