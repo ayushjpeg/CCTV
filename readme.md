@@ -184,3 +184,5 @@ The Broadcast tab now shows a **Live viewers** counter and keeps relays healthy 
 - Expand diagnostics page to test relay performance from the browser UI.
 
 Issues and PRs are welcome! Document your environment (browser, OS, ISP) when reporting WebRTC bugs so we can reproduce NAT/firewall quirks.
+
+# This app is under dev
