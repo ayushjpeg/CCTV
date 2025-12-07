@@ -47,6 +47,18 @@ broadcastState.buttonEl.onclick = startBroadcast;
 
 const broadcastPeerConnections = {};
 
+async function verifyCameraAccess(settings) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera capture is not supported in this browser.');
+    }
+    const constraints = {
+        video: { width: { ideal: settings.width }, height: { ideal: settings.height } },
+        audio: settings.audio
+    };
+    const testStream = await navigator.mediaDevices.getUserMedia(constraints);
+    return testStream;
+}
+
 async function beginViewerStream(reason = 'viewer connected') {
     if (document.visibilityState !== 'visible') {
         broadcastState.pendingVisibilityResume = true;
@@ -572,6 +584,19 @@ async function startBroadcast() {
     updateModeHelpText();
     toggleMotionPanel();
     try {
+        let testStream = null;
+        try {
+            testStream = await verifyCameraAccess(broadcastState.settings);
+        } catch (err) {
+            broadcastState.active = false;
+            setStatus(broadcastState.statusEl, err?.message || 'Failed to access camera.', 'error');
+            return;
+        } finally {
+            if (testStream) {
+                testStream.getTracks().forEach(track => track.stop());
+            }
+        }
+
         socket.emit('register_broadcaster', { camera_id: cameraName, name: cameraName });
         broadcastState.active = true;
         broadcastState.cameraId = cameraName;
