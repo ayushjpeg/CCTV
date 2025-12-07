@@ -51,6 +51,14 @@
                                 <option value="true" selected>With Audio</option>
                             </select>
                         </div>
+                        <div class="control-group">
+                            <label>Broadcast Mode</label>
+                            <select id="broadcastMode">
+                                <option value="viewer-triggered" selected>Viewer-triggered standby</option>
+                                <option value="always-on">Always-on with motion clips</option>
+                            </select>
+                            <p class="mode-help" id="modeHelpText">Camera sleeps until someone tunes in. Screen stays awake.</p>
+                        </div>
                         <button class="btn btn-primary" id="startBtn">Start Broadcasting</button>
                         <div class="media-controls" id="broadcastMediaControls" style="display: none;">
                             <button class="media-btn" id="broadcastMicBtn" title="Toggle Microphone">
@@ -63,6 +71,13 @@
                         <div class="viewer-pill" id="viewerCountPill">
                             <span>Live viewers</span>
                             <span class="value" id="viewerCountValue">0</span>
+                        </div>
+                        <div class="motion-panel" id="motionPanel">
+                            <h4>Motion Clips</h4>
+                            <div class="status info" id="motionStatus" style="display: none;"></div>
+                            <div class="recordings-list" id="motionClips">
+                                <div class="mode-help">Motion clips will appear here when movement is detected.</div>
+                            </div>
                         </div>
                         <div id="bcStatus" class="status info" style="display: none;"></div>
                     </div>
