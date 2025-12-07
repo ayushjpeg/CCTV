@@ -40,11 +40,32 @@ const broadcastState = {
     settings: null,
     pendingStreamPromise: null,
     lastViewerCount: 0,
-    permissionPrimed: false
+    permissionPrimed: false,
+    pendingVisibilityResume: false
 };
 broadcastState.buttonEl.onclick = startBroadcast;
 
 const broadcastPeerConnections = {};
+
+async function beginViewerStream(reason = 'viewer connected') {
+    if (document.visibilityState !== 'visible') {
+        broadcastState.pendingVisibilityResume = true;
+        setStatus(broadcastState.statusEl, 'Viewer waiting — bring this tab to the front to go live.', 'warn');
+        return;
+    }
+    try {
+        await ensureBroadcastStream(reason);
+        broadcastState.pendingVisibilityResume = false;
+    } catch (err) {
+        console.error('Stream start failed', err);
+        let message = err?.message || 'Unable to start camera.';
+        if (err?.name === 'NotReadableError') {
+            message = 'Camera could not start. Ensure no other app is using it and keep this tab visible.';
+            broadcastState.pendingVisibilityResume = true;
+        }
+        setStatus(broadcastState.statusEl, message, 'error');
+    }
+}
 
 const wakeLockManager = (() => {
     let sentinel = null;
@@ -212,6 +233,7 @@ function releaseBroadcastStream(reason = '') {
     broadcastState.stream = null;
     localVideoEl.srcObject = null;
     broadcastState.mediaControlsEl.style.display = 'none';
+    broadcastState.pendingVisibilityResume = false;
     if (reason) {
         setStatus(broadcastState.statusEl, `Camera idle — ${reason}`, 'info');
     }
@@ -533,7 +555,7 @@ function handleViewerCountUpdate(cameraId, count) {
     updateCamerasList(knownCameras);
     if (broadcastState.active && cameraId === broadcastState.cameraId && broadcastState.mode === 'viewer-triggered') {
         if (count > 0) {
-            ensureBroadcastStream('viewer connected').catch(err => console.error('Stream start failed', err));
+            beginViewerStream('viewer connected');
         } else {
             releaseBroadcastStream('No viewers');
         }
@@ -569,7 +591,7 @@ async function startBroadcast() {
         if (broadcastState.mode === 'always-on') {
                 await ensureBroadcastStream('continuous monitoring');
             } else if (broadcastState.lastViewerCount > 0) {
-                await ensureBroadcastStream('viewer connected');
+                await beginViewerStream('viewer connected');
             } else {
                 if (!broadcastState.permissionPrimed) {
                     try {
@@ -617,6 +639,7 @@ function stopBroadcast(options = {}) {
     broadcastState.lastViewerCount = 0;
     broadcastState.pendingStreamPromise = null;
     broadcastState.permissionPrimed = false;
+    broadcastState.pendingVisibilityResume = false;
     wakeLockManager.disable();
     localVideoEl.srcObject = null;
     updateBroadcastViewerCount();
@@ -829,6 +852,18 @@ document.getElementById('watchPipBtn').onclick = () => {
 document.getElementById('callLocalFullscreenBtn').onclick = () => {
     toggleFullscreen(document.getElementById('callLocalVideo'));
 };
+
+document.addEventListener('visibilitychange', () => {
+    if (
+        document.visibilityState === 'visible' &&
+        broadcastState.pendingVisibilityResume &&
+        broadcastState.active &&
+        broadcastState.mode === 'viewer-triggered' &&
+        (viewerCounts[broadcastState.cameraId] || 0) > 0
+    ) {
+        beginViewerStream('resuming for viewer');
+    }
+});
 
 // -------------------- Call Hub --------------------
 
@@ -1139,12 +1174,7 @@ socket.on('viewer_counts', (data) => {
 
 socket.on('viewer_offer', async (data) => {
     if (!broadcastState.active) return;
-    try {
-        await ensureBroadcastStream('viewer connected');
-    } catch (err) {
-        console.error('Unable to start stream for viewer', err);
-        return;
-    }
+    await beginViewerStream('viewer connected');
     if (!broadcastState.stream) return;
     const pc = createBroadcastPeerConnection(data.viewer_sid, true);
     broadcastState.stream.getTracks().forEach(track => pc.addTrack(track, broadcastState.stream));
