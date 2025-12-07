@@ -39,7 +39,8 @@ const broadcastState = {
     mode: broadcastModeSelect.value,
     settings: null,
     pendingStreamPromise: null,
-    lastViewerCount: 0
+    lastViewerCount: 0,
+    permissionPrimed: false
 };
 broadcastState.buttonEl.onclick = startBroadcast;
 
@@ -566,13 +567,22 @@ async function startBroadcast() {
         socket.emit('request_viewer_counts');
         await wakeLockManager.enable();
         if (broadcastState.mode === 'always-on') {
-            await ensureBroadcastStream('continuous monitoring');
-        } else if (broadcastState.lastViewerCount > 0) {
-            await ensureBroadcastStream('viewer connected');
-        } else {
-            releaseBroadcastStream();
-            setStatus(broadcastState.statusEl, 'Standby until a viewer joins.', 'info');
-        }
+                await ensureBroadcastStream('continuous monitoring');
+            } else if (broadcastState.lastViewerCount > 0) {
+                await ensureBroadcastStream('viewer connected');
+            } else {
+                if (!broadcastState.permissionPrimed) {
+                    try {
+                        await ensureBroadcastStream('initializing camera');
+                        broadcastState.permissionPrimed = true;
+                    } finally {
+                        releaseBroadcastStream('Standby mode');
+                    }
+                } else {
+                    releaseBroadcastStream('Standby mode');
+                }
+                setStatus(broadcastState.statusEl, 'Standby until a viewer joins.', 'info');
+            }
     } catch (err) {
         socket.emit('stop_broadcast', { camera_id: cameraName });
         stopBroadcast({ skipEmit: true });
@@ -606,6 +616,7 @@ function stopBroadcast(options = {}) {
     broadcastState.settings = null;
     broadcastState.lastViewerCount = 0;
     broadcastState.pendingStreamPromise = null;
+    broadcastState.permissionPrimed = false;
     wakeLockManager.disable();
     localVideoEl.srcObject = null;
     updateBroadcastViewerCount();
