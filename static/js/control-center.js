@@ -21,6 +21,20 @@ const modeHelpTextEl = document.getElementById('modeHelpText');
 const motionPanelEl = document.getElementById('motionPanel');
 const motionStatusEl = document.getElementById('motionStatus');
 const motionClipsEl = document.getElementById('motionClips');
+const recordingsState = {
+    listEl: document.getElementById('recordingsList'),
+    statusEl: document.getElementById('recordingsStatus'),
+    videoEl: document.getElementById('recordingVideo'),
+    titleEl: document.getElementById('recordingTitle'),
+    metaEl: document.getElementById('recordingMeta'),
+    downloadBtn: document.getElementById('recordingDownloadBtn'),
+    filterEl: document.getElementById('recordingsCameraFilter'),
+    refreshBtn: document.getElementById('refreshRecordingsBtn'),
+    clips: [],
+    loading: false,
+    activeClip: null,
+    autoTimer: null
+};
 
 const broadcastState = {
     active: false,
@@ -41,7 +55,10 @@ const broadcastState = {
     pendingStreamPromise: null,
     lastViewerCount: 0,
     permissionPrimed: false,
-    pendingVisibilityResume: false
+    pendingVisibilityResume: false,
+    refreshTimer: null,
+    resyncing: false,
+    wasVisible: false
 };
 broadcastState.buttonEl.onclick = startBroadcast;
 
@@ -464,6 +481,20 @@ function switchTab(n) {
     document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
     document.getElementById('tab' + n).classList.add('active');
     document.querySelectorAll('.tab-btn')[n].classList.add('active');
+    if (n === 2) {
+        loadRecordings({ silent: true });
+    }
+}
+
+if (recordingsState.refreshBtn) {
+    recordingsState.refreshBtn.addEventListener('click', () => loadRecordings({ silent: false }));
+}
+if (recordingsState.filterEl) {
+    recordingsState.filterEl.addEventListener('change', () => loadRecordings({ silent: false }));
+}
+if (recordingsState.listEl) {
+    loadRecordings({ silent: true });
+    startRecordingsAutoRefresh();
 }
 
 function setStatus(el, text, variant = 'info') {
@@ -472,6 +503,192 @@ function setStatus(el, text, variant = 'info') {
     el.style.display = 'block';
     el.classList.remove('info', 'success', 'warn', 'error');
     el.classList.add(variant);
+}
+
+function formatClipTimestamp(value) {
+    if (!value) return 'Unknown time';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return value;
+    }
+    return date.toLocaleString();
+}
+
+function formatFileSize(bytes) {
+    if (typeof bytes !== 'number' || bytes < 0) return '';
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+        size /= 1024;
+        unit++;
+    }
+    const value = unit === 0 ? Math.round(size) : size.toFixed(1);
+    return `${value} ${units[unit]}`;
+}
+
+function showRecordingsStatus(text = '', variant = 'info') {
+    if (!recordingsState.statusEl) return;
+    if (!text) {
+        recordingsState.statusEl.style.display = 'none';
+        return;
+    }
+    setStatus(recordingsState.statusEl, text, variant);
+}
+
+function highlightRecordingsSelection() {
+    if (!recordingsState.listEl) return;
+    const cards = recordingsState.listEl.querySelectorAll('.recordings-card');
+    cards.forEach((card) => {
+        const cameraId = card.getAttribute('data-camera');
+        const filename = card.getAttribute('data-file');
+        const isActive = recordingsState.activeClip &&
+            recordingsState.activeClip.camera_id === cameraId &&
+            recordingsState.activeClip.filename === filename;
+        card.classList.toggle('active', Boolean(isActive));
+    });
+}
+
+function renderRecordingsList() {
+    if (!recordingsState.listEl) return;
+    if (!recordingsState.clips.length) {
+        recordingsState.listEl.innerHTML = '<div class="recordings-empty">No clips available yet. Motion captures will appear here.</div>';
+        highlightRecordingsSelection();
+        return;
+    }
+    recordingsState.listEl.innerHTML = recordingsState.clips.map((clip) => {
+        const timestamp = formatClipTimestamp(clip.recorded_at);
+        const sizeLabel = formatFileSize(clip.bytes);
+        const active = recordingsState.activeClip &&
+            recordingsState.activeClip.camera_id === clip.camera_id &&
+            recordingsState.activeClip.filename === clip.filename ? 'active' : '';
+        return `
+            <div class="recordings-card ${active}" data-camera="${clip.camera_id}" data-file="${clip.filename}">
+                <div class="clip-title">${timestamp}</div>
+                <div class="clip-meta"><span>${clip.camera_id}</span><span>${sizeLabel}</span></div>
+            </div>
+        `;
+    }).join('');
+    recordingsState.listEl.querySelectorAll('.recordings-card').forEach((card) => {
+        card.addEventListener('click', () => {
+            const cameraId = card.getAttribute('data-camera');
+            const filename = card.getAttribute('data-file');
+            const clip = recordingsState.clips.find((entry) => entry.camera_id === cameraId && entry.filename === filename);
+            if (clip) {
+                selectRecording(clip);
+            }
+        });
+    });
+}
+
+function selectRecording(clip, options = {}) {
+    if (!clip) return;
+    const { autoplay = true } = options;
+    recordingsState.activeClip = { camera_id: clip.camera_id, filename: clip.filename };
+    if (recordingsState.titleEl) {
+        recordingsState.titleEl.textContent = formatClipTimestamp(clip.recorded_at);
+    }
+    if (recordingsState.metaEl) {
+        const sizeLabel = formatFileSize(clip.bytes);
+        recordingsState.metaEl.textContent = `${clip.camera_id} · ${sizeLabel}`;
+    }
+    if (recordingsState.videoEl) {
+        const needsSrcUpdate = recordingsState.videoEl.getAttribute('src') !== clip.clip_url;
+        if (needsSrcUpdate) {
+            recordingsState.videoEl.src = clip.clip_url;
+        }
+        if (autoplay) {
+            recordingsState.videoEl.play().catch(() => {});
+        }
+    }
+    if (recordingsState.downloadBtn) {
+        recordingsState.downloadBtn.href = clip.clip_url;
+        recordingsState.downloadBtn.classList.remove('disabled');
+        recordingsState.downloadBtn.setAttribute('download', clip.filename);
+    }
+    highlightRecordingsSelection();
+}
+
+function updateRecordingFilterOptions(cameraList = []) {
+    if (!recordingsState.filterEl) return;
+    const uniqueCameras = new Set(cameraList);
+    recordingsState.clips.forEach((clip) => uniqueCameras.add(clip.camera_id));
+    const sorted = Array.from(uniqueCameras).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const previous = recordingsState.filterEl.value;
+    const options = ['<option value="">All cameras</option>', ...sorted.map((camera) => `<option value="${camera}">${camera}</option>`)];
+    recordingsState.filterEl.innerHTML = options.join('');
+    if (previous && sorted.includes(previous)) {
+        recordingsState.filterEl.value = previous;
+    }
+}
+
+async function loadRecordings(options = {}) {
+    if (!recordingsState.listEl) return;
+    const { silent = false } = options;
+    if (recordingsState.loading) return;
+    recordingsState.loading = true;
+    if (!silent) {
+        showRecordingsStatus('Loading clips...', 'info');
+    }
+    const params = new URLSearchParams();
+    const filterValue = recordingsState.filterEl?.value?.trim();
+    if (filterValue) {
+        params.set('camera_id', filterValue);
+    }
+    params.set('limit', '120');
+    const url = `/api/motion-clips${params.toString() ? `?${params.toString()}` : ''}`;
+    try {
+        const response = await fetch(url, { cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+            throw new Error(payload?.error || 'Failed to load clips');
+        }
+        recordingsState.clips = payload.clips || [];
+        updateRecordingFilterOptions(payload.cameras || []);
+        renderRecordingsList();
+        if (recordingsState.clips.length) {
+            const existing = recordingsState.activeClip && recordingsState.clips.find((clip) =>
+                clip.camera_id === recordingsState.activeClip.camera_id && clip.filename === recordingsState.activeClip.filename);
+            selectRecording(existing || recordingsState.clips[0], { autoplay: !existing });
+            if (!silent) {
+                const total = payload.total ?? recordingsState.clips.length;
+                showRecordingsStatus(`${total} clip${total === 1 ? '' : 's'} available`, 'success');
+            } else {
+                showRecordingsStatus('', 'info');
+            }
+        } else {
+            recordingsState.activeClip = null;
+            highlightRecordingsSelection();
+            if (recordingsState.titleEl) recordingsState.titleEl.textContent = 'Select a clip to begin playback.';
+            if (recordingsState.metaEl) recordingsState.metaEl.textContent = 'Timestamp · Camera';
+            if (recordingsState.videoEl) {
+                recordingsState.videoEl.removeAttribute('src');
+                if (typeof recordingsState.videoEl.load === 'function') {
+                    recordingsState.videoEl.load();
+                }
+            }
+            if (recordingsState.downloadBtn) {
+                recordingsState.downloadBtn.classList.add('disabled');
+                recordingsState.downloadBtn.href = '#';
+                recordingsState.downloadBtn.removeAttribute('download');
+            }
+            showRecordingsStatus('No recordings found yet.', silent ? 'info' : 'warn');
+        }
+    } catch (err) {
+        console.error('Recording fetch failed', err);
+        showRecordingsStatus(err?.message || 'Unable to load clips', 'error');
+    } finally {
+        recordingsState.loading = false;
+    }
+}
+
+function startRecordingsAutoRefresh() {
+    if (!recordingsState.listEl || recordingsState.autoTimer) return;
+    recordingsState.autoTimer = setInterval(() => {
+        if (document.visibilityState === 'hidden') return;
+        loadRecordings({ silent: true });
+    }, 60000);
 }
 
 function startOnlineUsersPolling() {
@@ -520,6 +737,16 @@ function updateBroadcastViewerCount() {
     broadcastState.lastViewerCount = count;
 }
 
+function resyncBroadcastPresence(message = '', options = {}) {
+    if (!broadcastState.active || !broadcastState.cameraId) return;
+    const { silent = false } = options;
+    socket.emit('register_broadcaster', { camera_id: broadcastState.cameraId, name: broadcastState.cameraId });
+    socket.emit('broadcaster_heartbeat', { camera_id: broadcastState.cameraId });
+    if (message && !silent) {
+        setStatus(broadcastState.statusEl, message, 'info');
+    }
+}
+
 function updateCamerasList(cameras = []) {
     knownCameras = cameras.slice();
     const list = document.getElementById('camerasList');
@@ -547,6 +774,16 @@ function updateCamerasList(cameras = []) {
             watchCamera(cameraId);
         });
     });
+    if (broadcastState.active && broadcastState.cameraId) {
+        const present = cameras.includes(broadcastState.cameraId);
+        if (present) {
+            broadcastState.wasVisible = true;
+            broadcastState.resyncing = false;
+        } else if (broadcastState.wasVisible && !broadcastState.resyncing) {
+            broadcastState.resyncing = true;
+            resyncBroadcastPresence('Connection refreshed — making this camera discoverable again.', { silent: false });
+        }
+    }
 }
 
 function handleViewerCountUpdate(cameraId, count) {
@@ -575,6 +812,7 @@ async function startBroadcast() {
         socket.emit('register_broadcaster', { camera_id: cameraName, name: cameraName });
         broadcastState.active = true;
         broadcastState.cameraId = cameraName;
+        broadcastState.wasVisible = false;
         broadcastState.buttonEl.textContent = 'Stop Broadcasting';
         broadcastState.buttonEl.onclick = stopBroadcast;
         broadcastState.mediaControlsEl.style.display = 'none';
@@ -586,6 +824,10 @@ async function startBroadcast() {
         broadcastState.viewerPollTimer = setInterval(() => {
             socket.emit('request_viewer_counts');
         }, 10000);
+        broadcastState.refreshTimer = setInterval(() => {
+            resyncBroadcastPresence('', { silent: true });
+        }, 60000);
+        broadcastState.resyncing = false;
         socket.emit('request_viewer_counts');
         await wakeLockManager.enable();
 
@@ -633,6 +875,10 @@ function stopBroadcast(options = {}) {
         clearInterval(broadcastState.viewerPollTimer);
         broadcastState.viewerPollTimer = null;
     }
+    if (broadcastState.refreshTimer) {
+        clearInterval(broadcastState.refreshTimer);
+        broadcastState.refreshTimer = null;
+    }
     if (!skipEmit && broadcastState.cameraId) {
         socket.emit('stop_broadcast', { camera_id: broadcastState.cameraId });
     }
@@ -649,6 +895,8 @@ function stopBroadcast(options = {}) {
     broadcastState.pendingStreamPromise = null;
     broadcastState.permissionPrimed = false;
     broadcastState.pendingVisibilityResume = false;
+    broadcastState.resyncing = false;
+    broadcastState.wasVisible = false;
     wakeLockManager.disable();
     localVideoEl.srcObject = null;
     updateBroadcastViewerCount();
@@ -1153,10 +1401,16 @@ socket.on('connect', () => {
     socket.emit('request_viewer_counts');
     socket.emit('request_online_users');
     startOnlineUsersPolling();
+    if (broadcastState.active && broadcastState.cameraId) {
+        resyncBroadcastPresence('Connection restored — camera synced with viewers.');
+    }
 });
 
 socket.on('disconnect', () => {
     stopOnlineUsersPolling();
+    if (broadcastState.active) {
+        setStatus(broadcastState.statusEl, 'Connection interrupted. Reconnecting...', 'warn');
+    }
 });
 
 socket.on('broadcasters_list', (data) => {

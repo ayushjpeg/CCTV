@@ -58,6 +58,34 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .count-chip { padding: 0.25rem 0.65rem; border-radius: 999px; font-size: 0.8rem; background: rgba(147,197,253,0.14); color: #bfdbfe; }
 .no-cameras { text-align: center; padding: 4rem 2rem; color: #9ca3af; grid-column: 1/-1; border: 1px dashed rgba(255,255,255,0.08); border-radius: 16px; }
 
+.recordings-layout { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 2rem; align-items: flex-start; }
+@media (max-width: 1000px) { .recordings-layout { grid-template-columns: 1fr; } }
+.recordings-sidebar { background: rgba(10,10,12,0.95); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; padding: 1.5rem; box-shadow: 0 20px 35px rgba(0,0,0,0.35); }
+.recordings-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.25rem; }
+.recordings-header h2 { font-size: 1.35rem; margin-bottom: 0.35rem; }
+.recordings-header p { color: #9ca3af; font-size: 0.9rem; }
+.refresh-btn { border: none; background: rgba(255,255,255,0.08); color: #fff; border-radius: 50%; width: 42px; height: 42px; font-size: 1.1rem; cursor: pointer; transition: all 0.2s; }
+.refresh-btn:hover { background: rgba(99,102,241,0.4); transform: rotate(10deg); }
+.filter-row { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }
+.filter-row label { font-size: 0.85rem; color: #9ca3af; }
+.filter-row select { padding: 0.6rem 0.9rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(24,24,27,0.85); color: #fff; }
+.recordings-feed { display: flex; flex-direction: column; gap: 0.9rem; max-height: 520px; overflow-y: auto; padding-right: 0.3rem; }
+.recordings-card { border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 0.85rem 1rem; background: rgba(17,17,19,0.9); cursor: pointer; transition: all 0.2s; }
+.recordings-card:hover { border-color: rgba(99,102,241,0.4); transform: translateX(4px); }
+.recordings-card.active { border-color: rgba(147,197,253,0.7); background: rgba(99,102,241,0.18); box-shadow: 0 10px 25px rgba(99,102,241,0.2); }
+.recordings-card .clip-title { font-weight: 600; }
+.recordings-card .clip-meta { font-size: 0.8rem; color: #9ca3af; margin-top: 0.25rem; display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.recordings-empty { text-align: center; padding: 3rem 1rem; color: #9ca3af; border: 1px dashed rgba(255,255,255,0.08); border-radius: 14px; }
+
+.recordings-player { background: rgba(6,6,8,0.95); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; padding: 2rem; box-shadow: 0 20px 35px rgba(0,0,0,0.35); width: 100%; }
+.player-shell { display: flex; flex-direction: column; gap: 1.25rem; }
+.player-meta { background: rgba(15,15,17,0.9); border: 1px solid rgba(255,255,255,0.04); border-radius: 14px; padding: 1.25rem; }
+.player-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.35rem; }
+.player-subtitle { color: #9ca3af; font-size: 0.9rem; margin-bottom: 1rem; }
+.player-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+.btn.disabled { opacity: 0.5; pointer-events: none; }
+
+
 #videoPlayerModal { margin-top: 3rem; }
 #videoPlayerModal video { border-radius: 18px; border: 1px solid rgba(255,255,255,0.08); background: #000; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
 

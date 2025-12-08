@@ -16,7 +16,8 @@
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab(0)">Broadcast</button>
             <button class="tab-btn" onclick="switchTab(1)">Watch</button>
-            <button class="tab-btn" onclick="switchTab(2)">Call Hub</button>
+            <button class="tab-btn" onclick="switchTab(2)">Recordings</button>
+            <button class="tab-btn" onclick="switchTab(3)">Call Hub</button>
         </div>
 
         <!-- Broadcast Tab -->
@@ -104,8 +105,47 @@
             </div>
         </div>
 
-        <!-- Call Hub -->
+        <!-- Recordings Tab -->
         <div id="tab2" class="tab-content">
+            <div class="recordings-layout">
+                <div class="recordings-sidebar">
+                    <div class="recordings-header">
+                        <div>
+                            <h2>Saved Recordings</h2>
+                            <p>Browse motion clips stored on the server.</p>
+                        </div>
+                        <button class="refresh-btn" id="refreshRecordingsBtn" title="Refresh clips">↻</button>
+                    </div>
+                    <div class="filter-row">
+                        <label for="recordingsCameraFilter">Camera</label>
+                        <select id="recordingsCameraFilter">
+                            <option value="">All cameras</option>
+                        </select>
+                    </div>
+                    <div id="recordingsStatus" class="status info" style="display: none;"></div>
+                    <div id="recordingsList" class="recordings-feed">
+                        <div class="recordings-empty">No clips available yet. Motion captures will appear here.</div>
+                    </div>
+                </div>
+                <div class="recordings-player">
+                    <div class="player-shell">
+                        <div class="video-wrapper" style="min-height: 320px;">
+                            <video id="recordingVideo" controls playsinline style="width: 100%; height: 100%; object-fit: cover; background: #000; border-radius: 18px;"></video>
+                        </div>
+                        <div class="player-meta">
+                            <div class="player-title" id="recordingTitle">Select a clip to begin playback.</div>
+                            <div class="player-subtitle" id="recordingMeta">Timestamp · Camera</div>
+                            <div class="player-actions">
+                                <a id="recordingDownloadBtn" class="btn btn-secondary disabled" href="#" target="_blank" rel="noopener">Download Clip</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Call Hub -->
+        <div id="tab3" class="tab-content">
             <div class="call-layout">
                 <div class="call-sidebar">
                     <div class="profile-block">
