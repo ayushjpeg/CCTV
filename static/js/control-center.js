@@ -138,10 +138,11 @@ const motionRecorder = {
     recorder: null,
     recording: false,
     chunks: [],
-    idleTimer: null,
+    stabilityTimer: null,
     threshold: 30,
-    ratio: 0.015,
-    cooldownMs: 8000,
+    changeThreshold: 0.001,
+    stableDurationMs: 5000,
+    lastRatio: null,
     active: false
 };
 motionRecorder.statusEl = motionStatusEl;
@@ -270,6 +271,11 @@ function startMotionDetection() {
         motionRecorder.canvas.width = Math.min(320, localVideoEl.videoWidth || 320);
         motionRecorder.canvas.height = Math.min(180, localVideoEl.videoHeight || 180);
         motionRecorder.lastFrame = null;
+        motionRecorder.lastRatio = null;
+        if (motionRecorder.stabilityTimer) {
+            clearTimeout(motionRecorder.stabilityTimer);
+            motionRecorder.stabilityTimer = null;
+        }
         if (motionRecorder.statusEl) {
             motionRecorder.statusEl.style.display = 'block';
             setStatus(motionRecorder.statusEl, 'Monitoring for movement...', 'info');
@@ -288,9 +294,10 @@ function stopMotionDetection() {
         motionRecorder.rafId = null;
     }
     motionRecorder.lastFrame = null;
-    if (motionRecorder.idleTimer) {
-        clearTimeout(motionRecorder.idleTimer);
-        motionRecorder.idleTimer = null;
+    motionRecorder.lastRatio = null;
+    if (motionRecorder.stabilityTimer) {
+        clearTimeout(motionRecorder.stabilityTimer);
+        motionRecorder.stabilityTimer = null;
     }
     stopMotionRecording();
     if (motionRecorder.statusEl) {
@@ -323,39 +330,60 @@ function motionDetectionLoop() {
             }
         }
         const ratio = motionPixels / Math.max(1, (frameData.length / 16));
-        if (ratio > motionRecorder.ratio) {
-            handleMotionDetected(ratio);
+        if (motionRecorder.lastRatio === null) {
+            motionRecorder.lastRatio = ratio;
         } else {
-            handleMotionCleared();
+            const delta = Math.abs(ratio - motionRecorder.lastRatio);
+            motionRecorder.lastRatio = ratio;
+            if (delta >= motionRecorder.changeThreshold) {
+                handleMotionChange(ratio, delta);
+            } else {
+                handleMotionStable(ratio);
+            }
         }
     }
     motionRecorder.lastFrame = frameData.slice(0);
     motionRecorder.rafId = requestAnimationFrame(motionDetectionLoop);
 }
 
-function handleMotionDetected(ratio) {
+function handleMotionChange(ratio, delta) {
     if (motionRecorder.statusEl) {
-        setStatus(motionRecorder.statusEl, `Motion detected (${(ratio * 100).toFixed(1)}% frame)`, 'warn');
+        setStatus(
+            motionRecorder.statusEl,
+            `Change detected: ${(delta * 100).toFixed(2)}% delta (current ${(ratio * 100).toFixed(2)}%)`,
+            'warn'
+        );
+    }
+    if (motionRecorder.stabilityTimer) {
+        clearTimeout(motionRecorder.stabilityTimer);
+        motionRecorder.stabilityTimer = null;
     }
     if (!motionRecorder.recording) {
         startMotionRecording();
     }
-    if (motionRecorder.idleTimer) {
-        clearTimeout(motionRecorder.idleTimer);
-    }
-    motionRecorder.idleTimer = setTimeout(() => {
-        stopMotionRecording();
-        if (motionRecorder.statusEl && !motionRecorder.recording) {
-            setStatus(motionRecorder.statusEl, 'Monitoring for movement...', 'info');
-        }
-    }, motionRecorder.cooldownMs);
 }
 
-function handleMotionCleared() {
-    if (motionRecorder.recording) return;
-    if (motionRecorder.statusEl) {
-        setStatus(motionRecorder.statusEl, 'Monitoring for movement...', 'info');
+function handleMotionStable(ratio) {
+    if (!motionRecorder.recording) {
+        if (motionRecorder.statusEl) {
+            setStatus(motionRecorder.statusEl, `Scene steady (${(ratio * 100).toFixed(2)}%)`, 'info');
+        }
+        return;
     }
+    if (motionRecorder.stabilityTimer) {
+        return;
+    }
+    if (motionRecorder.statusEl) {
+        const steadySeconds = Math.round(motionRecorder.stableDurationMs / 1000);
+        setStatus(motionRecorder.statusEl, `Scene steady — finishing recording if stable for ${steadySeconds}s...`, 'info');
+    }
+    motionRecorder.stabilityTimer = setTimeout(() => {
+        motionRecorder.stabilityTimer = null;
+        stopMotionRecording();
+        if (motionRecorder.statusEl && !motionRecorder.recording) {
+            setStatus(motionRecorder.statusEl, 'Recording saved — monitoring for new changes.', 'success');
+        }
+    }, motionRecorder.stableDurationMs);
 }
 
 function startMotionRecording() {
@@ -396,6 +424,10 @@ function startMotionRecording() {
 
 function stopMotionRecording() {
     if (!motionRecorder.recording || !motionRecorder.recorder) return;
+    if (motionRecorder.stabilityTimer) {
+        clearTimeout(motionRecorder.stabilityTimer);
+        motionRecorder.stabilityTimer = null;
+    }
     motionRecorder.recording = false;
     try {
         motionRecorder.recorder.stop();
