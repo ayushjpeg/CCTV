@@ -25,6 +25,10 @@ const motionPercentEl = document.getElementById('motionPercent');
 const motionThresholdInput = document.getElementById('motionThresholdInput');
 const motionThresholdDisplay = document.getElementById('motionThresholdDisplay');
 const cameraNameInput = document.getElementById('cameraName');
+const watchVideoFrame = document.getElementById('watchVideoFrame');
+const watchRotateBtn = document.getElementById('watchRotateBtn');
+const watchFitBtn = document.getElementById('watchFitBtn');
+const remoteVideoEl = document.getElementById('remoteVideo');
 const recordingsState = {
     listEl: document.getElementById('recordingsList'),
     statusEl: document.getElementById('recordingsStatus'),
@@ -606,8 +610,39 @@ const watchState = {
     cameraId: null,
     remoteStream: null,
     retryTimer: null,
-    manualClose: false
+    manualClose: false,
+    rotation: 0,
+    fitMode: 'fit'
 };
+
+function applyWatchVideoPresentation() {
+    if (watchVideoFrame) {
+        const normalized = ((watchState.rotation % 360) + 360) % 360;
+        watchVideoFrame.dataset.rotation = String(normalized);
+        watchVideoFrame.classList.toggle('fill', watchState.fitMode === 'fill');
+    }
+    if (watchFitBtn) {
+        const label = watchState.fitMode === 'fit' ? 'Fill Frame' : 'Fit Frame';
+        watchFitBtn.textContent = label;
+        watchFitBtn.classList.toggle('active', watchState.fitMode === 'fit');
+    }
+}
+
+if (watchRotateBtn) {
+    watchRotateBtn.addEventListener('click', () => {
+        watchState.rotation = (watchState.rotation + 90) % 360;
+        applyWatchVideoPresentation();
+    });
+}
+
+if (watchFitBtn) {
+    watchFitBtn.addEventListener('click', () => {
+        watchState.fitMode = watchState.fitMode === 'fit' ? 'fill' : 'fit';
+        applyWatchVideoPresentation();
+    });
+}
+
+applyWatchVideoPresentation();
 
 const callState = {
     username: null,
@@ -1193,9 +1228,14 @@ async function watchCamera(cameraId, isRetry = false) {
         watchState.peer = pc;
         pc.ontrack = (event) => {
             watchState.remoteStream = event.streams[0];
-            const video = document.getElementById('remoteVideo');
+            const video = remoteVideoEl || document.getElementById('remoteVideo');
+            if (!video) return;
+            video.muted = true;
+            video.defaultMuted = true;
             video.srcObject = watchState.remoteStream;
-            video.play().catch(() => video.play().catch(() => {}));
+            applyWatchVideoPresentation();
+            const playAttempt = () => video.play().catch(() => {});
+            playAttempt();
         };
         pc.addTransceiver('video', { direction: 'recvonly' });
         pc.addTransceiver('audio', { direction: 'recvonly' });
@@ -1237,11 +1277,22 @@ function closeRemoteVideo({ keepModal = false, skipEmit = false, manual = true }
         watchState.remoteStream.getTracks().forEach(track => track.stop());
         watchState.remoteStream = null;
     }
+    if (remoteVideoEl) {
+        remoteVideoEl.srcObject = null;
+        if (typeof remoteVideoEl.load === 'function') {
+            remoteVideoEl.load();
+        }
+    }
     if (previousCamera && !skipEmit) {
         socket.emit('viewer_leave', { camera_id: previousCamera });
     }
     watchState.manualClose = manual;
     watchState.cameraId = keepModal ? previousCamera : null;
+    if (!keepModal) {
+        watchState.rotation = 0;
+        watchState.fitMode = 'fit';
+        applyWatchVideoPresentation();
+    }
 }
 
 function preferCodec(sdp, kind, codec) {

@@ -104,16 +104,18 @@
             <div id="camerasList" class="cameras-grid">
                 <div class="no-cameras">Loading cameras...</div>
             </div>
-            <div id="videoPlayerModal" style="display: none; margin-top: 3rem;">
+            <div id="videoPlayerModal" class="watch-shell" style="display: none;">
                 <div id="watchStatus" class="status info">Connecting...</div>
-                <div class="video-wrapper" style="background: rgba(10,10,10,0.95); border: 1px solid rgba(255,255,255,0.05); border-radius: 18px; overflow: hidden; aspect-ratio: 16/9; margin-bottom: 1.5rem; position: relative;">
-                    <video id="remoteVideo" autoplay playsinline controls style="width: 100%; height: 100%; object-fit: cover; background: #000;"></video>
-                    <div class="video-overlay-controls">
-                        <button class="overlay-btn" id="watchFullscreenBtn" title="Fullscreen">⛶ Fullscreen</button>
-                        <button class="overlay-btn" id="watchPipBtn" title="Picture-in-Picture">📺 PiP</button>
-                    </div>
+                <div class="watch-video" id="watchVideoFrame" data-rotation="0">
+                    <video id="remoteVideo" autoplay playsinline controls muted></video>
                 </div>
-                <button class="btn btn-secondary" id="closeRemoteBtn" style="width: auto; padding: 0.75rem 2.2rem;">Close Video</button>
+                <div class="video-toolbar">
+                    <button id="watchRotateBtn" type="button">Rotate 90°</button>
+                    <button id="watchFitBtn" type="button" class="active">Fit Frame</button>
+                    <button id="watchFullscreenBtn" type="button">Fullscreen</button>
+                    <button id="watchPipBtn" type="button">PiP</button>
+                </div>
+                <button class="btn btn-secondary" id="closeRemoteBtn" style="width: 100%; margin-top: 1.25rem;">Close Video</button>
             </div>
         </div>
 
