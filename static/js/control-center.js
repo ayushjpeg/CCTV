@@ -141,15 +141,17 @@ const motionRecorder = {
     lastFrame: null,
     recorder: null,
     recording: false,
+    recordingStartTime: null,
+    lastAboveThresholdAt: null,
     chunks: [],
-    stabilityTimer: null,
     threshold: 30,
-    changeThreshold: 0.001,
-    steadyThreshold: 0.0004,
+    changeThreshold: 0.005,
+    steadyThreshold: 0.002,
     stableDurationMs: 5000,
     smoothingFactor: 0.25,
     smoothedRatio: null,
     sampleIntervalMs: 100,
+    maxRecordingMs: 300000,
     state: 'idle',
     percentEl: motionPercentEl,
     lastStatusMessage: '',
@@ -160,14 +162,14 @@ motionRecorder.statusEl = motionStatusEl;
 motionRecorder.listEl = motionClipsEl;
 motionRecorder.percentEl = motionPercentEl;
 
-const DEFAULT_MOTION_THRESHOLD_PERCENT = 0.1;
+const DEFAULT_MOTION_THRESHOLD_PERCENT = 0.5;
 
 function clampMotionThresholdPercent(value) {
     let numeric = typeof value === 'number' ? value : parseFloat(value);
     if (Number.isNaN(numeric)) {
         numeric = DEFAULT_MOTION_THRESHOLD_PERCENT;
     }
-    numeric = Math.max(0.01, Math.min(10, numeric));
+    numeric = Math.max(0.5, Math.min(10, numeric));
     return numeric;
 }
 
@@ -341,11 +343,9 @@ function startMotionDetection() {
         motionRecorder.state = 'idle';
         motionRecorder.lastStatusMessage = '';
         motionRecorder.lastStatusVariant = 'info';
+        motionRecorder.recordingStartTime = null;
+        motionRecorder.lastAboveThresholdAt = null;
         updateMotionPercent(0);
-        if (motionRecorder.stabilityTimer) {
-            clearTimeout(motionRecorder.stabilityTimer);
-            motionRecorder.stabilityTimer = null;
-        }
         if (motionRecorder.statusEl) {
             motionRecorder.statusEl.style.display = 'block';
             showMotionStatus('Monitoring for movement...', 'info');
@@ -377,11 +377,9 @@ function stopMotionDetection() {
     motionRecorder.state = 'idle';
     motionRecorder.lastStatusMessage = '';
     motionRecorder.lastStatusVariant = 'info';
+    motionRecorder.recordingStartTime = null;
+    motionRecorder.lastAboveThresholdAt = null;
     updateMotionPercent(0);
-    if (motionRecorder.stabilityTimer) {
-        clearTimeout(motionRecorder.stabilityTimer);
-        motionRecorder.stabilityTimer = null;
-    }
     stopMotionRecording();
     if (motionRecorder.statusEl) {
         motionRecorder.statusEl.style.display = 'none';
@@ -420,24 +418,38 @@ function sampleMotionFrame() {
         }
         const effectiveRatio = motionRecorder.smoothedRatio;
         updateMotionPercent(effectiveRatio);
+        const now = Date.now();
         if (effectiveRatio >= motionRecorder.changeThreshold) {
-            handleMotionChange(effectiveRatio);
+            motionRecorder.lastAboveThresholdAt = now;
+            handleMotionChange(effectiveRatio, now);
         } else if (effectiveRatio <= motionRecorder.steadyThreshold) {
             handleMotionStable(effectiveRatio);
         }
+        enforceRecordingGuards(now);
     }
     motionRecorder.lastFrame = frameData.slice(0);
 }
 
-function handleMotionChange(ratio) {
-    motionRecorder.state = 'active';
-    showMotionStatus('Motion detected — recording', 'warn');
-    if (motionRecorder.stabilityTimer) {
-        clearTimeout(motionRecorder.stabilityTimer);
-        motionRecorder.stabilityTimer = null;
+function enforceRecordingGuards(now = Date.now()) {
+    if (!motionRecorder.recording) return;
+    if (motionRecorder.recordingStartTime && (now - motionRecorder.recordingStartTime) >= motionRecorder.maxRecordingMs) {
+        stopMotionRecording();
+        showMotionStatus('Recording stopped — 5 minute limit reached.', 'warn');
+        return;
     }
+    const lastAbove = motionRecorder.lastAboveThresholdAt;
+    if (lastAbove && (now - lastAbove) >= motionRecorder.stableDurationMs) {
+        stopMotionRecording();
+        showMotionStatus('Recording stopped — no motion above threshold for 5s.', 'info');
+    }
+}
+
+function handleMotionChange(ratio, timestamp = Date.now()) {
+    motionRecorder.state = 'active';
+    motionRecorder.lastAboveThresholdAt = timestamp;
+    showMotionStatus('Motion detected — recording', 'warn');
     if (!motionRecorder.recording) {
-        startMotionRecording();
+        startMotionRecording(timestamp);
     }
 }
 
@@ -447,22 +459,11 @@ function handleMotionStable(ratio) {
         showMotionStatus('Scene steady', 'info');
         return;
     }
-    if (motionRecorder.stabilityTimer) {
-        return;
-    }
     motionRecorder.state = 'steady';
-    const steadySeconds = Math.round(motionRecorder.stableDurationMs / 1000);
-    showMotionStatus(`Scene steady — saving clip in ${steadySeconds}s...`, 'info');
-    motionRecorder.stabilityTimer = setTimeout(() => {
-        motionRecorder.stabilityTimer = null;
-        stopMotionRecording();
-        if (!motionRecorder.recording) {
-            showMotionStatus('Recording saved — monitoring for new changes.', 'success');
-        }
-    }, motionRecorder.stableDurationMs);
+    showMotionStatus('Scene steady — will stop if no motion resumes.', 'info');
 }
 
-function startMotionRecording() {
+function startMotionRecording(startTimestamp = Date.now()) {
     if (!window.MediaRecorder || !broadcastState.stream) {
         showMotionStatus('Motion detected but recording is not supported in this browser.', 'error');
         return;
@@ -495,17 +496,18 @@ function startMotionRecording() {
     };
     motionRecorder.recording = true;
     motionRecorder.state = 'active';
+    motionRecorder.recordingStartTime = startTimestamp;
+    if (!motionRecorder.lastAboveThresholdAt) {
+        motionRecorder.lastAboveThresholdAt = startTimestamp;
+    }
     motionRecorder.recorder.start();
 }
 
 function stopMotionRecording() {
     if (!motionRecorder.recording || !motionRecorder.recorder) return;
-    if (motionRecorder.stabilityTimer) {
-        clearTimeout(motionRecorder.stabilityTimer);
-        motionRecorder.stabilityTimer = null;
-    }
     motionRecorder.recording = false;
     motionRecorder.state = 'steady';
+    motionRecorder.recordingStartTime = null;
     try {
         motionRecorder.recorder.stop();
     } catch (err) {
