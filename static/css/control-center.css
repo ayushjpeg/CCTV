@@ -38,6 +38,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .mode-help { margin-top: 0.35rem; font-size: 0.85rem; color: #9ca3af; }
 .motion-panel { margin-top: 1.25rem; border: 1px dashed rgba(99,102,241,0.4); border-radius: 12px; padding: 1rem; background: rgba(12,12,12,0.85); display: none; }
 .motion-panel h4 { margin-bottom: 0.75rem; font-size: 1rem; }
+.motion-metrics { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; padding: 0.75rem 1rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(20,20,24,0.9); }
+.motion-metrics .metric-label { font-size: 0.85rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.08em; display: block; }
+.motion-metrics .metric-value { font-size: 1.35rem; font-weight: 700; color: #86efac; }
+.motion-metrics .metric-note { font-size: 0.8rem; color: #9ca3af; white-space: nowrap; }
 .recordings-list { display: flex; flex-direction: column; gap: 0.75rem; }
 .recording-item { display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(18,18,24,0.85); }
 .recording-title { font-weight: 600; }

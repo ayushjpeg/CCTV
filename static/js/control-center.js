@@ -21,6 +21,7 @@ const modeHelpTextEl = document.getElementById('modeHelpText');
 const motionPanelEl = document.getElementById('motionPanel');
 const motionStatusEl = document.getElementById('motionStatus');
 const motionClipsEl = document.getElementById('motionClips');
+const motionPercentEl = document.getElementById('motionPercent');
 const recordingsState = {
     listEl: document.getElementById('recordingsList'),
     statusEl: document.getElementById('recordingsStatus'),
@@ -141,9 +142,14 @@ const motionRecorder = {
     stabilityTimer: null,
     threshold: 30,
     changeThreshold: 0.001,
+    steadyThreshold: 0.0004,
     stableDurationMs: 5000,
     smoothingFactor: 0.25,
     smoothedRatio: null,
+    state: 'idle',
+    percentEl: motionPercentEl,
+    lastStatusMessage: '',
+    lastStatusVariant: 'info',
     active: false
 };
 motionRecorder.statusEl = motionStatusEl;
@@ -273,13 +279,17 @@ function startMotionDetection() {
         motionRecorder.canvas.height = Math.min(180, localVideoEl.videoHeight || 180);
         motionRecorder.lastFrame = null;
         motionRecorder.smoothedRatio = null;
+        motionRecorder.state = 'idle';
+        motionRecorder.lastStatusMessage = '';
+        motionRecorder.lastStatusVariant = 'info';
+        updateMotionPercent(0);
         if (motionRecorder.stabilityTimer) {
             clearTimeout(motionRecorder.stabilityTimer);
             motionRecorder.stabilityTimer = null;
         }
         if (motionRecorder.statusEl) {
             motionRecorder.statusEl.style.display = 'block';
-            setStatus(motionRecorder.statusEl, 'Monitoring for movement...', 'info');
+            showMotionStatus('Monitoring for movement...', 'info');
         }
         motionRecorder.rafId = requestAnimationFrame(motionDetectionLoop);
     };
@@ -296,6 +306,10 @@ function stopMotionDetection() {
     }
     motionRecorder.lastFrame = null;
     motionRecorder.smoothedRatio = null;
+    motionRecorder.state = 'idle';
+    motionRecorder.lastStatusMessage = '';
+    motionRecorder.lastStatusVariant = 'info';
+    updateMotionPercent(0);
     if (motionRecorder.stabilityTimer) {
         clearTimeout(motionRecorder.stabilityTimer);
         motionRecorder.stabilityTimer = null;
@@ -338,9 +352,10 @@ function motionDetectionLoop() {
             motionRecorder.smoothedRatio = (alpha * ratio) + ((1 - alpha) * motionRecorder.smoothedRatio);
         }
         const effectiveRatio = motionRecorder.smoothedRatio;
+        updateMotionPercent(effectiveRatio);
         if (effectiveRatio >= motionRecorder.changeThreshold) {
             handleMotionChange(effectiveRatio);
-        } else {
+        } else if (effectiveRatio <= motionRecorder.steadyThreshold) {
             handleMotionStable(effectiveRatio);
         }
     }
@@ -349,9 +364,8 @@ function motionDetectionLoop() {
 }
 
 function handleMotionChange(ratio) {
-    if (motionRecorder.statusEl) {
-        setStatus(motionRecorder.statusEl, `Motion detected: ${(ratio * 100).toFixed(2)}% of frame`, 'warn');
-    }
+    motionRecorder.state = 'active';
+    showMotionStatus('Motion detected — recording', 'warn');
     if (motionRecorder.stabilityTimer) {
         clearTimeout(motionRecorder.stabilityTimer);
         motionRecorder.stabilityTimer = null;
@@ -363,30 +377,28 @@ function handleMotionChange(ratio) {
 
 function handleMotionStable(ratio) {
     if (!motionRecorder.recording) {
-        if (motionRecorder.statusEl) {
-            setStatus(motionRecorder.statusEl, `Scene steady (${(ratio * 100).toFixed(2)}%)`, 'info');
-        }
+        motionRecorder.state = 'steady';
+        showMotionStatus('Scene steady', 'info');
         return;
     }
     if (motionRecorder.stabilityTimer) {
         return;
     }
-    if (motionRecorder.statusEl) {
-        const steadySeconds = Math.round(motionRecorder.stableDurationMs / 1000);
-        setStatus(motionRecorder.statusEl, `Scene steady — finishing recording if stable for ${steadySeconds}s...`, 'info');
-    }
+    motionRecorder.state = 'steady';
+    const steadySeconds = Math.round(motionRecorder.stableDurationMs / 1000);
+    showMotionStatus(`Scene steady — saving clip in ${steadySeconds}s...`, 'info');
     motionRecorder.stabilityTimer = setTimeout(() => {
         motionRecorder.stabilityTimer = null;
         stopMotionRecording();
-        if (motionRecorder.statusEl && !motionRecorder.recording) {
-            setStatus(motionRecorder.statusEl, 'Recording saved — monitoring for new changes.', 'success');
+        if (!motionRecorder.recording) {
+            showMotionStatus('Recording saved — monitoring for new changes.', 'success');
         }
     }, motionRecorder.stableDurationMs);
 }
 
 function startMotionRecording() {
     if (!window.MediaRecorder || !broadcastState.stream) {
-        setStatus(motionRecorder.statusEl, 'Motion detected but recording is not supported in this browser.', 'error');
+        showMotionStatus('Motion detected but recording is not supported in this browser.', 'error');
         return;
     }
     if (motionRecorder.recording) return;
@@ -397,7 +409,7 @@ function startMotionRecording() {
             motionRecorder.recorder = new MediaRecorder(broadcastState.stream);
         } catch (inner) {
             console.warn('Unable to start MediaRecorder', inner);
-            setStatus(motionRecorder.statusEl, inner?.message || 'Failed to start recorder', 'error');
+            showMotionStatus(inner?.message || 'Failed to start recorder', 'error');
             return;
         }
     }
@@ -416,8 +428,8 @@ function startMotionRecording() {
         }
     };
     motionRecorder.recording = true;
+    motionRecorder.state = 'active';
     motionRecorder.recorder.start();
-    setStatus(motionRecorder.statusEl, 'Recording motion...', 'success');
 }
 
 function stopMotionRecording() {
@@ -427,6 +439,7 @@ function stopMotionRecording() {
         motionRecorder.stabilityTimer = null;
     }
     motionRecorder.recording = false;
+    motionRecorder.state = 'steady';
     try {
         motionRecorder.recorder.stop();
     } catch (err) {
@@ -456,10 +469,10 @@ async function uploadMotionClip(blob) {
             throw new Error(payload?.error || 'Failed to save motion clip');
         }
         appendMotionClip(payload.clip_url, payload.timestamp, payload.bytes, payload.camera_id);
-        setStatus(motionRecorder.statusEl, 'Motion clip saved', 'success');
+        showMotionStatus('Motion clip saved', 'success');
     } catch (err) {
         console.error(err);
-        setStatus(motionRecorder.statusEl, err?.message || 'Failed to save motion clip', 'error');
+        showMotionStatus(err?.message || 'Failed to save motion clip', 'error');
     }
 }
 
@@ -533,6 +546,26 @@ function setStatus(el, text, variant = 'info') {
     el.style.display = 'block';
     el.classList.remove('info', 'success', 'warn', 'error');
     el.classList.add(variant);
+}
+
+function showMotionStatus(text, variant = 'info') {
+    if (!motionRecorder.statusEl) return;
+    if (motionRecorder.lastStatusMessage === text && motionRecorder.lastStatusVariant === variant) return;
+    motionRecorder.lastStatusMessage = text;
+    motionRecorder.lastStatusVariant = variant;
+    setStatus(motionRecorder.statusEl, text, variant);
+}
+
+function formatMotionPercent(ratio) {
+    const safeRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 0;
+    const percent = safeRatio * 100;
+    const precision = percent < 0.1 ? 3 : 2;
+    return `${percent.toFixed(precision)}%`;
+}
+
+function updateMotionPercent(ratio) {
+    if (!motionRecorder.percentEl) return;
+    motionRecorder.percentEl.textContent = formatMotionPercent(ratio);
 }
 
 function formatClipTimestamp(value) {
