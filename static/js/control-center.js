@@ -142,7 +142,6 @@ const motionRecorder = {
     threshold: 30,
     changeThreshold: 0.001,
     stableDurationMs: 5000,
-    lastRatio: null,
     active: false
 };
 motionRecorder.statusEl = motionStatusEl;
@@ -271,7 +270,6 @@ function startMotionDetection() {
         motionRecorder.canvas.width = Math.min(320, localVideoEl.videoWidth || 320);
         motionRecorder.canvas.height = Math.min(180, localVideoEl.videoHeight || 180);
         motionRecorder.lastFrame = null;
-        motionRecorder.lastRatio = null;
         if (motionRecorder.stabilityTimer) {
             clearTimeout(motionRecorder.stabilityTimer);
             motionRecorder.stabilityTimer = null;
@@ -294,7 +292,6 @@ function stopMotionDetection() {
         motionRecorder.rafId = null;
     }
     motionRecorder.lastFrame = null;
-    motionRecorder.lastRatio = null;
     if (motionRecorder.stabilityTimer) {
         clearTimeout(motionRecorder.stabilityTimer);
         motionRecorder.stabilityTimer = null;
@@ -330,29 +327,19 @@ function motionDetectionLoop() {
             }
         }
         const ratio = motionPixels / Math.max(1, (frameData.length / 16));
-        if (motionRecorder.lastRatio === null) {
-            motionRecorder.lastRatio = ratio;
+        if (ratio >= motionRecorder.changeThreshold) {
+            handleMotionChange(ratio);
         } else {
-            const delta = Math.abs(ratio - motionRecorder.lastRatio);
-            motionRecorder.lastRatio = ratio;
-            if (delta >= motionRecorder.changeThreshold) {
-                handleMotionChange(ratio, delta);
-            } else {
-                handleMotionStable(ratio);
-            }
+            handleMotionStable(ratio);
         }
     }
     motionRecorder.lastFrame = frameData.slice(0);
     motionRecorder.rafId = requestAnimationFrame(motionDetectionLoop);
 }
 
-function handleMotionChange(ratio, delta) {
+function handleMotionChange(ratio) {
     if (motionRecorder.statusEl) {
-        setStatus(
-            motionRecorder.statusEl,
-            `Change detected: ${(delta * 100).toFixed(2)}% delta (current ${(ratio * 100).toFixed(2)}%)`,
-            'warn'
-        );
+        setStatus(motionRecorder.statusEl, `Motion detected: ${(ratio * 100).toFixed(2)}% of frame`, 'warn');
     }
     if (motionRecorder.stabilityTimer) {
         clearTimeout(motionRecorder.stabilityTimer);
