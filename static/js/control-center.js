@@ -24,6 +24,7 @@ const motionClipsEl = document.getElementById('motionClips');
 const motionPercentEl = document.getElementById('motionPercent');
 const motionThresholdInput = document.getElementById('motionThresholdInput');
 const motionThresholdDisplay = document.getElementById('motionThresholdDisplay');
+const cameraNameInput = document.getElementById('cameraName');
 const recordingsState = {
     listEl: document.getElementById('recordingsList'),
     statusEl: document.getElementById('recordingsStatus'),
@@ -38,6 +39,20 @@ const recordingsState = {
     activeClip: null,
     autoTimer: null
 };
+
+let autoSuggestedCameraName = (cameraNameInput?.value?.trim()) || 'cam-01';
+let cameraNameManuallyEdited = false;
+
+if (cameraNameInput) {
+    cameraNameInput.addEventListener('input', () => {
+        const currentValue = cameraNameInput.value.trim();
+        if (!currentValue) {
+            cameraNameManuallyEdited = false;
+            return;
+        }
+        cameraNameManuallyEdited = currentValue !== autoSuggestedCameraName;
+    });
+}
 
 const broadcastState = {
     active: false,
@@ -214,6 +229,48 @@ function initMotionThresholdControl() {
     motionThresholdInput.addEventListener('change', commit);
     motionThresholdInput.addEventListener('blur', commit);
     motionThresholdInput.addEventListener('input', () => setMotionThresholdPercent(motionThresholdInput.value, { persist: false }));
+}
+
+function computeNextCameraName(existing = []) {
+    const usedIds = new Set();
+    const pattern = /^cam-(\d+)$/i;
+    existing.forEach((name) => {
+        if (typeof name !== 'string') return;
+        const match = name.trim().match(pattern);
+        if (!match) return;
+        const numeric = parseInt(match[1], 10);
+        if (!Number.isNaN(numeric)) {
+            usedIds.add(numeric);
+        }
+    });
+    let candidate = 1;
+    while (usedIds.has(candidate)) {
+        candidate += 1;
+    }
+    return `cam-${String(candidate).padStart(2, '0')}`;
+}
+
+function refreshCameraNameSuggestion(options = {}) {
+    if (!cameraNameInput) return;
+    const { force = false } = options;
+    if (!force) {
+        if (broadcastState.active) return;
+        const currentValue = cameraNameInput.value.trim();
+        if (cameraNameManuallyEdited && currentValue && currentValue !== autoSuggestedCameraName) {
+            return;
+        }
+    }
+    const nextName = computeNextCameraName(knownCameras);
+    if (!nextName) return;
+    const trimmed = cameraNameInput.value.trim();
+    if (trimmed === nextName) {
+        autoSuggestedCameraName = nextName;
+        cameraNameManuallyEdited = false;
+        return;
+    }
+    cameraNameInput.value = nextName;
+    autoSuggestedCameraName = nextName;
+    cameraNameManuallyEdited = false;
 }
 
 function updateModeHelpText() {
@@ -880,6 +937,7 @@ function resyncBroadcastPresence(message = '', options = {}) {
 
 function updateCamerasList(cameras = []) {
     knownCameras = cameras.slice();
+    refreshCameraNameSuggestion();
     const list = document.getElementById('camerasList');
     if (!cameras.length) {
         list.innerHTML = '<div class="no-cameras">No cameras broadcasting. Start one from the Broadcast tab.</div>';
@@ -932,7 +990,7 @@ function handleViewerCountUpdate(cameraId, count) {
 
 async function startBroadcast() {
     if (broadcastState.active) return;
-    const cameraName = document.getElementById('cameraName').value.trim() || `cam-${Date.now()}`;
+    const cameraName = (cameraNameInput?.value?.trim()) || `cam-${Date.now()}`;
     const [width, height] = document.getElementById('resolution').value.split('x').map(Number);
     const audio = document.getElementById('audioEnable').value === 'true';
     broadcastState.settings = { width, height, audio };
@@ -1034,6 +1092,7 @@ function stopBroadcast(options = {}) {
     wakeLockManager.disable();
     localVideoEl.srcObject = null;
     updateBroadcastViewerCount();
+    refreshCameraNameSuggestion();
 }
 
 function toggleBroadcastMic() {
@@ -1087,6 +1146,7 @@ broadcastModeSelect.addEventListener('change', () => {
 updateModeHelpText();
 toggleMotionPanel();
 initMotionThresholdControl();
+refreshCameraNameSuggestion({ force: true });
 
 function createBroadcastPeerConnection(peerId, isBroadcaster) {
     const pc = new RTCPeerConnection({
