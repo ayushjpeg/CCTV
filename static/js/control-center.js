@@ -142,6 +142,8 @@ const motionRecorder = {
     threshold: 30,
     changeThreshold: 0.001,
     stableDurationMs: 5000,
+    smoothingFactor: 0.25,
+    smoothedRatio: null,
     active: false
 };
 motionRecorder.statusEl = motionStatusEl;
@@ -270,6 +272,7 @@ function startMotionDetection() {
         motionRecorder.canvas.width = Math.min(320, localVideoEl.videoWidth || 320);
         motionRecorder.canvas.height = Math.min(180, localVideoEl.videoHeight || 180);
         motionRecorder.lastFrame = null;
+        motionRecorder.smoothedRatio = null;
         if (motionRecorder.stabilityTimer) {
             clearTimeout(motionRecorder.stabilityTimer);
             motionRecorder.stabilityTimer = null;
@@ -292,6 +295,7 @@ function stopMotionDetection() {
         motionRecorder.rafId = null;
     }
     motionRecorder.lastFrame = null;
+    motionRecorder.smoothedRatio = null;
     if (motionRecorder.stabilityTimer) {
         clearTimeout(motionRecorder.stabilityTimer);
         motionRecorder.stabilityTimer = null;
@@ -327,10 +331,17 @@ function motionDetectionLoop() {
             }
         }
         const ratio = motionPixels / Math.max(1, (frameData.length / 16));
-        if (ratio >= motionRecorder.changeThreshold) {
-            handleMotionChange(ratio);
+        if (motionRecorder.smoothedRatio === null) {
+            motionRecorder.smoothedRatio = ratio;
         } else {
-            handleMotionStable(ratio);
+            const alpha = Math.min(Math.max(motionRecorder.smoothingFactor, 0.05), 0.95);
+            motionRecorder.smoothedRatio = (alpha * ratio) + ((1 - alpha) * motionRecorder.smoothedRatio);
+        }
+        const effectiveRatio = motionRecorder.smoothedRatio;
+        if (effectiveRatio >= motionRecorder.changeThreshold) {
+            handleMotionChange(effectiveRatio);
+        } else {
+            handleMotionStable(effectiveRatio);
         }
     }
     motionRecorder.lastFrame = frameData.slice(0);
