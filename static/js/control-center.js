@@ -135,6 +135,7 @@ const motionRecorder = {
     canvas: document.createElement('canvas'),
     ctx: null,
     rafId: null,
+    sampleTimer: null,
     lastFrame: null,
     recorder: null,
     recording: false,
@@ -146,6 +147,7 @@ const motionRecorder = {
     stableDurationMs: 5000,
     smoothingFactor: 0.25,
     smoothedRatio: null,
+    sampleIntervalMs: 100,
     state: 'idle',
     percentEl: motionPercentEl,
     lastStatusMessage: '',
@@ -291,7 +293,12 @@ function startMotionDetection() {
             motionRecorder.statusEl.style.display = 'block';
             showMotionStatus('Monitoring for movement...', 'info');
         }
-        motionRecorder.rafId = requestAnimationFrame(motionDetectionLoop);
+        if (motionRecorder.sampleTimer) {
+            clearInterval(motionRecorder.sampleTimer);
+        }
+        const interval = Math.max(50, motionRecorder.sampleIntervalMs || 100);
+        motionRecorder.sampleTimer = setInterval(sampleMotionFrame, interval);
+        sampleMotionFrame();
     };
 
     primeAndLoop();
@@ -303,6 +310,10 @@ function stopMotionDetection() {
     if (motionRecorder.rafId) {
         cancelAnimationFrame(motionRecorder.rafId);
         motionRecorder.rafId = null;
+    }
+    if (motionRecorder.sampleTimer) {
+        clearInterval(motionRecorder.sampleTimer);
+        motionRecorder.sampleTimer = null;
     }
     motionRecorder.lastFrame = null;
     motionRecorder.smoothedRatio = null;
@@ -320,11 +331,10 @@ function stopMotionDetection() {
     }
 }
 
-function motionDetectionLoop() {
+function sampleMotionFrame() {
     if (!motionRecorder.active || !motionRecorder.ctx) return;
     const video = localVideoEl;
     if (!video || video.readyState < 2) {
-        motionRecorder.rafId = requestAnimationFrame(motionDetectionLoop);
         return;
     }
     const width = motionRecorder.canvas.width || Math.min(320, video.videoWidth || 320);
@@ -360,7 +370,6 @@ function motionDetectionLoop() {
         }
     }
     motionRecorder.lastFrame = frameData.slice(0);
-    motionRecorder.rafId = requestAnimationFrame(motionDetectionLoop);
 }
 
 function handleMotionChange(ratio) {
