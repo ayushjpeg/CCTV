@@ -22,6 +22,8 @@ const motionPanelEl = document.getElementById('motionPanel');
 const motionStatusEl = document.getElementById('motionStatus');
 const motionClipsEl = document.getElementById('motionClips');
 const motionPercentEl = document.getElementById('motionPercent');
+const motionThresholdInput = document.getElementById('motionThresholdInput');
+const motionThresholdDisplay = document.getElementById('motionThresholdDisplay');
 const recordingsState = {
     listEl: document.getElementById('recordingsList'),
     statusEl: document.getElementById('recordingsStatus'),
@@ -156,6 +158,61 @@ const motionRecorder = {
 };
 motionRecorder.statusEl = motionStatusEl;
 motionRecorder.listEl = motionClipsEl;
+motionRecorder.percentEl = motionPercentEl;
+
+const DEFAULT_MOTION_THRESHOLD_PERCENT = 0.1;
+
+function clampMotionThresholdPercent(value) {
+    let numeric = typeof value === 'number' ? value : parseFloat(value);
+    if (Number.isNaN(numeric)) {
+        numeric = DEFAULT_MOTION_THRESHOLD_PERCENT;
+    }
+    numeric = Math.max(0.01, Math.min(10, numeric));
+    return numeric;
+}
+
+function setMotionThresholdPercent(value, options = {}) {
+    const { persist = true } = options;
+    const percent = clampMotionThresholdPercent(value);
+    const ratio = percent / 100;
+    motionRecorder.changeThreshold = ratio;
+    motionRecorder.steadyThreshold = Math.max(ratio * 0.4, 0.0001);
+    if (motionThresholdInput) {
+        motionThresholdInput.value = percent.toFixed(2);
+    }
+    if (motionThresholdDisplay) {
+        motionThresholdDisplay.textContent = `${percent.toFixed(2)}%`;
+    }
+    if (persist) {
+        try {
+            localStorage.setItem('motionThresholdPercent', percent.toFixed(2));
+        } catch (err) {
+            console.warn('Unable to persist motion threshold preference', err);
+        }
+    }
+    return percent;
+}
+
+function initMotionThresholdControl() {
+    let initial = DEFAULT_MOTION_THRESHOLD_PERCENT;
+    if (motionThresholdInput && motionThresholdInput.value) {
+        initial = clampMotionThresholdPercent(motionThresholdInput.value);
+    }
+    try {
+        const saved = parseFloat(localStorage.getItem('motionThresholdPercent'));
+        if (!Number.isNaN(saved)) {
+            initial = clampMotionThresholdPercent(saved);
+        }
+    } catch (err) {
+        console.warn('Unable to read motion threshold preference', err);
+    }
+    setMotionThresholdPercent(initial, { persist: false });
+    if (!motionThresholdInput) return;
+    const commit = () => setMotionThresholdPercent(motionThresholdInput.value);
+    motionThresholdInput.addEventListener('change', commit);
+    motionThresholdInput.addEventListener('blur', commit);
+    motionThresholdInput.addEventListener('input', () => setMotionThresholdPercent(motionThresholdInput.value, { persist: false }));
+}
 
 function updateModeHelpText() {
     if (!modeHelpTextEl) return;
@@ -880,6 +937,9 @@ async function startBroadcast() {
     broadcastState.mode = broadcastModeSelect.value;
     updateModeHelpText();
     toggleMotionPanel();
+    setMotionThresholdPercent(
+        motionThresholdInput ? motionThresholdInput.value : (motionRecorder.changeThreshold * 100)
+    );
     try {
         socket.emit('register_broadcaster', { camera_id: cameraName, name: cameraName });
         broadcastState.active = true;
@@ -1024,6 +1084,7 @@ broadcastModeSelect.addEventListener('change', () => {
 
 updateModeHelpText();
 toggleMotionPanel();
+initMotionThresholdControl();
 
 function createBroadcastPeerConnection(peerId, isBroadcaster) {
     const pc = new RTCPeerConnection({

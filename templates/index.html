@@ -60,6 +60,11 @@
                             </select>
                             <p class="mode-help" id="modeHelpText">Camera sleeps until someone tunes in. Screen stays awake.</p>
                         </div>
+                        <div class="control-group">
+                            <label>Motion trigger threshold (%)</label>
+                            <input type="number" id="motionThresholdInput" min="0.01" max="10" step="0.01" value="0.10">
+                            <p class="mode-help">Recordings begin when the frame change exceeds this percentage (applies to Always-on mode).</p>
+                        </div>
                         <button class="btn btn-primary" id="startBtn">Start Broadcasting</button>
                         <div class="media-controls" id="broadcastMediaControls" style="display: none;">
                             <button class="media-btn" id="broadcastMicBtn" title="Toggle Microphone">
@@ -80,7 +85,7 @@
                                     <span class="metric-label">Live motion</span>
                                     <span class="metric-value" id="motionPercent">0.00%</span>
                                 </div>
-                                <span class="metric-note">Recording starts at ≥0.10%</span>
+                                <span class="metric-note">Recording starts at ≥<span id="motionThresholdDisplay">0.10%</span></span>
                             </div>
                             <div class="status info" id="motionStatus" style="display: none;"></div>
                             <div class="recordings-list" id="motionClips">
