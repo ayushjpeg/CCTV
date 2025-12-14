@@ -183,15 +183,14 @@ body {
 
 .watch-video-controls {
     position: absolute;
-    bottom: 0.85rem;
-    left: 50%;
-    transform: translateX(-50%);
+    top: 0.75rem;
+    right: 0.75rem;
     display: flex;
-    gap: 0.35rem;
-    background: rgba(4, 12, 20, 0.7);
+    gap: 0.25rem;
+    background: rgba(4, 12, 20, 0.72);
     border-radius: 999px;
     backdrop-filter: blur(14px);
-    padding: 0.35rem 0.55rem;
+    padding: 0.3rem;
     box-shadow: 0 15px 35px rgba(0,0,0,0.55);
     z-index: 5;
 }
@@ -199,28 +198,29 @@ body {
     border: none;
     background: transparent;
     color: #fff;
-    font-size: 0.8rem;
+    font-size: 0.9rem;
     font-weight: 600;
-    padding: 0.3rem 0.55rem;
-    border-radius: 999px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
     cursor: pointer;
     transition: background 0.2s, color 0.2s;
     line-height: 1.1;
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    justify-content: center;
 }
 .watch-video-controls button:hover,
 .watch-video-controls button:focus-visible {
-    background: rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.2);
     outline: none;
 }
 .watch-video-controls button.active {
     background: rgba(29,229,255,0.2);
     color: var(--accent);
 }
-.watch-icon { font-size: 0.9rem; line-height: 1; }
-.watch-label { font-size: 0.75rem; letter-spacing: 0.03em; text-transform: uppercase; }
+.watch-icon { font-size: 1rem; line-height: 1; }
 
 .control-group input:focus,
 .control-group select:focus {
