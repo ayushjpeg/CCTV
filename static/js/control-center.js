@@ -29,6 +29,8 @@ const watchVideoFrame = document.getElementById('watchVideoFrame');
 const watchRotateBtn = document.getElementById('watchRotateBtn');
 const watchFillBtn = document.getElementById('watchFillBtn');
 const watchFillLabel = watchFillBtn ? watchFillBtn.querySelector('.watch-label') : null;
+const watchFullscreenBtn = document.getElementById('watchFullscreenBtn');
+const watchPipBtn = document.getElementById('watchPipBtn');
 const remoteVideoEl = document.getElementById('remoteVideo');
 const recordingsState = {
     listEl: document.getElementById('recordingsList'),
@@ -613,7 +615,8 @@ const watchState = {
     retryTimer: null,
     manualClose: false,
     rotation: 0,
-    fitMode: 'fit'
+    fitMode: 'fit',
+    baseAspect: 16 / 9
 };
 
 function applyWatchVideoPresentation() {
@@ -634,16 +637,53 @@ function applyWatchVideoPresentation() {
         watchFillBtn.setAttribute('aria-label', actionLabel);
         watchFillBtn.setAttribute('title', actionLabel);
     }
+    resizeWatchFrame();
+}
+
+function getWatchEffectiveAspect() {
+    const base = watchState.baseAspect || (16 / 9);
+    const normalized = ((watchState.rotation % 360) + 360) % 360;
+    const rotated = normalized === 90 || normalized === 270;
+    if (!rotated) return base;
+    const inverted = 1 / base;
+    return Number.isFinite(inverted) ? inverted : base;
+}
+
+function resizeWatchFrame() {
+    if (!watchVideoFrame) return;
+    const modal = document.getElementById('videoPlayerModal');
+    if (modal && modal.style.display === 'none') return;
+    if (document.fullscreenElement === watchVideoFrame) {
+        watchVideoFrame.style.width = '100%';
+        watchVideoFrame.style.height = '100%';
+        return;
+    }
+    const viewportHeight = Math.max(window.innerHeight || 0, 400);
+    const viewportWidth = Math.max(window.innerWidth || 0, 320);
+    const heightAllowance = Math.max(220, viewportHeight - 200);
+    const widthAllowance = Math.max(180, Math.min(960, viewportWidth - 32));
+    const aspect = getWatchEffectiveAspect();
+    let width = widthAllowance;
+    let height = width / aspect;
+    if (height > heightAllowance) {
+        height = heightAllowance;
+        width = height * aspect;
+    }
+    height = Math.max(180, height);
+    watchVideoFrame.style.width = `${Math.round(width)}px`;
+    watchVideoFrame.style.height = `${Math.round(height)}px`;
 }
 
 function setWatchAspectRatio(width, height) {
     if (!watchVideoFrame) return;
     if (!width || !height || !Number.isFinite(width) || !Number.isFinite(height)) {
-        watchVideoFrame.style.removeProperty('--watch-aspect');
+        watchState.baseAspect = 16 / 9;
+        resizeWatchFrame();
         return;
     }
     const ratio = Math.min(4, Math.max(0.25, width / height));
-    watchVideoFrame.style.setProperty('--watch-aspect', ratio.toFixed(4));
+    watchState.baseAspect = ratio;
+    resizeWatchFrame();
 }
 
 if (remoteVideoEl) {
@@ -672,6 +712,8 @@ if (watchFillBtn) {
 }
 
 applyWatchVideoPresentation();
+window.addEventListener('resize', resizeWatchFrame);
+document.addEventListener('fullscreenchange', resizeWatchFrame);
 
 const callState = {
     username: null,
@@ -1251,7 +1293,12 @@ async function watchCamera(cameraId, isRetry = false) {
         }
         watchState.cameraId = cameraId;
         socket.emit('viewer_join', { camera_id: cameraId });
-        document.getElementById('videoPlayerModal').style.display = 'block';
+        const modal = document.getElementById('videoPlayerModal');
+        modal.style.display = 'block';
+        resizeWatchFrame();
+        requestAnimationFrame(() => {
+            modal.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
         setStatus(document.getElementById('watchStatus'), `Connecting to ${cameraId}...`, 'info');
         const pc = createBroadcastPeerConnection(cameraId, false);
         watchState.peer = pc;
@@ -1328,7 +1375,12 @@ function closeRemoteVideo({ keepModal = false, skipEmit = false, manual = true }
     if (!keepModal) {
         watchState.rotation = 0;
         watchState.fitMode = 'fit';
+        watchState.baseAspect = 16 / 9;
         applyWatchVideoPresentation();
+        if (watchVideoFrame) {
+            watchVideoFrame.style.removeProperty('width');
+            watchVideoFrame.style.removeProperty('height');
+        }
     }
 }
 
@@ -1350,9 +1402,9 @@ function preferCodec(sdp, kind, codec) {
     return lines.join('\r\n');
 }
 
-function toggleFullscreen(videoElement) {
-    if (!videoElement) return;
-    const wrapper = videoElement.closest('.video-wrapper') || videoElement.parentElement;
+function toggleFullscreen(element) {
+    if (!element) return;
+    const wrapper = element.closest('.video-wrapper') || element.closest('.watch-video') || element;
     if (!document.fullscreenElement) {
         if (wrapper.requestFullscreen) {
             wrapper.requestFullscreen();
@@ -1383,12 +1435,16 @@ function togglePictureInPicture(videoElement) {
     }
 }
 
-document.getElementById('watchFullscreenBtn').onclick = () => {
-    toggleFullscreen(document.getElementById('remoteVideo'));
-};
-document.getElementById('watchPipBtn').onclick = () => {
-    togglePictureInPicture(document.getElementById('remoteVideo'));
-};
+if (watchFullscreenBtn) {
+    watchFullscreenBtn.onclick = () => {
+        toggleFullscreen(watchVideoFrame || remoteVideoEl);
+    };
+}
+if (watchPipBtn) {
+    watchPipBtn.onclick = () => {
+        togglePictureInPicture(remoteVideoEl);
+    };
+}
 document.getElementById('callLocalFullscreenBtn').onclick = () => {
     toggleFullscreen(document.getElementById('callLocalVideo'));
 };

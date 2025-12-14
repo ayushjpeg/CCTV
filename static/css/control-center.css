@@ -243,16 +243,31 @@ body {
 .player-actions { display: flex; gap: 0.8rem; flex-wrap: wrap; }
 
 #videoPlayerModal { margin-top: 2.5rem; }
-.watch-shell { background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: clamp(1rem, 3vw, 1.75rem); box-shadow: var(--shadow-card); }
+.watch-shell {
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: clamp(1rem, 3vw, 1.5rem);
+    box-shadow: var(--shadow-card);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
 .watch-video {
     position: relative;
     width: 100%;
+    max-width: 960px;
     border-radius: var(--radius-md);
     border: 1px solid var(--border);
     overflow: hidden;
     background: #000;
-    aspect-ratio: var(--watch-aspect, 16 / 9);
+    min-height: 220px;
     box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
 }
 .watch-video video {
     position: absolute;
@@ -270,15 +285,16 @@ body {
 .watch-video[data-rotation="270"] video { transform: rotate(270deg); }
 .watch-video-controls {
     position: absolute;
-    top: 0.85rem;
-    right: 0.85rem;
+    bottom: 0.85rem;
+    left: 50%;
+    transform: translateX(-50%);
     display: flex;
     gap: 0.35rem;
-    background: rgba(4, 12, 20, 0.65);
+    background: rgba(4, 12, 20, 0.7);
     border-radius: 999px;
     backdrop-filter: blur(14px);
-    padding: 0.3rem 0.45rem;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    padding: 0.35rem 0.55rem;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.55);
     z-index: 5;
 }
 .watch-video-controls button {
