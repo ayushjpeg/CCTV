@@ -245,48 +245,61 @@ body {
 #videoPlayerModal { margin-top: 2.5rem; }
 .watch-shell { background: var(--surface-alt); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: clamp(1rem, 3vw, 1.75rem); box-shadow: var(--shadow-card); }
 .watch-video {
+    position: relative;
+    width: 100%;
     border-radius: var(--radius-md);
     border: 1px solid var(--border);
-    position: relative;
     overflow: hidden;
     background: #000;
+    aspect-ratio: var(--watch-aspect, 16 / 9);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
 }
 .watch-video video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: contain;
-    transition: transform 0.3s ease, object-fit 0.3s ease;
+    transition: transform 0.35s ease, object-fit 0.35s ease;
     background: #000;
+    transform-origin: center;
 }
 .watch-video.fill video { object-fit: cover; }
 .watch-video[data-rotation="90"] video { transform: rotate(90deg); }
 .watch-video[data-rotation="180"] video { transform: rotate(180deg); }
 .watch-video[data-rotation="270"] video { transform: rotate(270deg); }
-.watch-video::before { content: ''; display: block; padding-bottom: 56.25%; visibility: hidden; }
-.watch-video > video { position: absolute; inset: 0; }
-.video-toolbar {
-    position: relative;
-    z-index: 5;
-    margin-top: 1rem;
+.watch-video-controls {
+    position: absolute;
+    top: 0.85rem;
+    right: 0.85rem;
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 0.35rem;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 999px;
+    backdrop-filter: blur(14px);
+    padding: 0.25rem 0.35rem;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.4);
 }
-.video-toolbar button {
-    flex: 1;
-    min-width: 130px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: rgba(4,15,22,0.9);
-    color: var(--text);
-    padding: 0.55rem 0.8rem;
+.watch-video-controls button {
+    border: none;
+    background: transparent;
+    color: #fff;
+    font-size: 0.85rem;
     font-weight: 600;
+    padding: 0.3rem 0.6rem;
+    border-radius: 999px;
     cursor: pointer;
-    letter-spacing: 0.02em;
-    transition: all 0.2s;
+    transition: background 0.2s, color 0.2s;
 }
-.video-toolbar button:hover { border-color: var(--accent); color: var(--accent); }
-.video-toolbar button.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.watch-video-controls button:hover,
+.watch-video-controls button:focus-visible {
+    background: rgba(255,255,255,0.18);
+    outline: none;
+}
+.watch-video-controls button.active {
+    background: rgba(29,229,255,0.2);
+    color: var(--accent);
+}
 
 .video-wrapper { position: relative; }
 .video-overlay-controls {

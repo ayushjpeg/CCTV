@@ -27,7 +27,7 @@ const motionThresholdDisplay = document.getElementById('motionThresholdDisplay')
 const cameraNameInput = document.getElementById('cameraName');
 const watchVideoFrame = document.getElementById('watchVideoFrame');
 const watchRotateBtn = document.getElementById('watchRotateBtn');
-const watchFitBtn = document.getElementById('watchFitBtn');
+const watchFillBtn = document.getElementById('watchFillBtn');
 const remoteVideoEl = document.getElementById('remoteVideo');
 const recordingsState = {
     listEl: document.getElementById('recordingsList'),
@@ -621,11 +621,35 @@ function applyWatchVideoPresentation() {
         watchVideoFrame.dataset.rotation = String(normalized);
         watchVideoFrame.classList.toggle('fill', watchState.fitMode === 'fill');
     }
-    if (watchFitBtn) {
-        const label = watchState.fitMode === 'fit' ? 'Fill Frame' : 'Fit Frame';
-        watchFitBtn.textContent = label;
-        watchFitBtn.classList.toggle('active', watchState.fitMode === 'fit');
+    if (watchFillBtn) {
+        const fillActive = watchState.fitMode === 'fill';
+        watchFillBtn.classList.toggle('active', fillActive);
+        const actionLabel = fillActive ? 'Fit frame' : 'Fill frame';
+        watchFillBtn.textContent = fillActive ? 'Fit' : 'Fill';
+        watchFillBtn.setAttribute('aria-label', actionLabel);
+        watchFillBtn.setAttribute('title', actionLabel);
     }
+}
+
+function setWatchAspectRatio(width, height) {
+    if (!watchVideoFrame) return;
+    if (!width || !height || !Number.isFinite(width) || !Number.isFinite(height)) {
+        watchVideoFrame.style.removeProperty('--watch-aspect');
+        return;
+    }
+    const ratio = Math.min(4, Math.max(0.25, width / height));
+    watchVideoFrame.style.setProperty('--watch-aspect', ratio.toFixed(4));
+}
+
+if (remoteVideoEl) {
+    remoteVideoEl.addEventListener('loadedmetadata', () => {
+        if (remoteVideoEl.videoWidth && remoteVideoEl.videoHeight) {
+            setWatchAspectRatio(remoteVideoEl.videoWidth, remoteVideoEl.videoHeight);
+        }
+    });
+    remoteVideoEl.addEventListener('emptied', () => {
+        setWatchAspectRatio();
+    });
 }
 
 if (watchRotateBtn) {
@@ -635,8 +659,8 @@ if (watchRotateBtn) {
     });
 }
 
-if (watchFitBtn) {
-    watchFitBtn.addEventListener('click', () => {
+if (watchFillBtn) {
+    watchFillBtn.addEventListener('click', () => {
         watchState.fitMode = watchState.fitMode === 'fit' ? 'fill' : 'fit';
         applyWatchVideoPresentation();
     });
@@ -1227,12 +1251,19 @@ async function watchCamera(cameraId, isRetry = false) {
         const pc = createBroadcastPeerConnection(cameraId, false);
         watchState.peer = pc;
         pc.ontrack = (event) => {
+            if (event.track.kind !== 'video') return;
             watchState.remoteStream = event.streams[0];
             const video = remoteVideoEl || document.getElementById('remoteVideo');
             if (!video) return;
             video.muted = true;
             video.defaultMuted = true;
             video.srcObject = watchState.remoteStream;
+            if (typeof event.track.getSettings === 'function') {
+                const settings = event.track.getSettings();
+                if (settings?.width && settings?.height) {
+                    setWatchAspectRatio(settings.width, settings.height);
+                }
+            }
             applyWatchVideoPresentation();
             const playAttempt = () => video.play().catch(() => {});
             playAttempt();
@@ -1282,6 +1313,7 @@ function closeRemoteVideo({ keepModal = false, skipEmit = false, manual = true }
         if (typeof remoteVideoEl.load === 'function') {
             remoteVideoEl.load();
         }
+        setWatchAspectRatio();
     }
     if (previousCamera && !skipEmit) {
         socket.emit('viewer_leave', { camera_id: previousCamera });

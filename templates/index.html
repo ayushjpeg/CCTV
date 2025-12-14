@@ -108,12 +108,12 @@
                 <div id="watchStatus" class="status info">Connecting...</div>
                 <div class="watch-video" id="watchVideoFrame" data-rotation="0">
                     <video id="remoteVideo" autoplay playsinline controls muted></video>
-                </div>
-                <div class="video-toolbar">
-                    <button id="watchRotateBtn" type="button">Rotate 90°</button>
-                    <button id="watchFitBtn" type="button" class="active">Fit Frame</button>
-                    <button id="watchFullscreenBtn" type="button">Fullscreen</button>
-                    <button id="watchPipBtn" type="button">PiP</button>
+                    <div class="watch-video-controls">
+                        <button id="watchRotateBtn" type="button" title="Rotate 90°" aria-label="Rotate video">⟳</button>
+                        <button id="watchFillBtn" type="button" title="Fill frame" aria-label="Fill frame">Fill</button>
+                        <button id="watchFullscreenBtn" type="button" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+                        <button id="watchPipBtn" type="button" title="Picture in Picture" aria-label="Picture in Picture">▣</button>
+                    </div>
                 </div>
                 <button class="btn btn-secondary" id="closeRemoteBtn" style="width: 100%; margin-top: 1.25rem;">Close Video</button>
             </div>
