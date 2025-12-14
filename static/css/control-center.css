@@ -167,8 +167,12 @@ body {
     transition: transform 0.25s ease, object-fit 0.25s ease;
     background: #000;
     transform-origin: center;
+    transform: rotate(0deg);
     min-height: 100%;
 }
+.watch-video[data-rotation="90"] video { transform: rotate(90deg); }
+.watch-video[data-rotation="180"] video { transform: rotate(180deg); }
+.watch-video[data-rotation="270"] video { transform: rotate(270deg); }
 .watch-video.rotated video {
     width: auto;
     min-width: 100%;
