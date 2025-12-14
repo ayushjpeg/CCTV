@@ -109,10 +109,22 @@
                 <div class="watch-video" id="watchVideoFrame" data-rotation="0">
                     <video id="remoteVideo" autoplay playsinline controls muted></video>
                     <div class="watch-video-controls">
-                        <button id="watchRotateBtn" type="button" title="Rotate 90°" aria-label="Rotate video">⟳</button>
-                        <button id="watchFillBtn" type="button" title="Fill frame" aria-label="Fill frame">Fill</button>
-                        <button id="watchFullscreenBtn" type="button" title="Fullscreen" aria-label="Fullscreen">⛶</button>
-                        <button id="watchPipBtn" type="button" title="Picture in Picture" aria-label="Picture in Picture">▣</button>
+                        <button id="watchRotateBtn" type="button" title="Rotate 90°" aria-label="Rotate video">
+                            <span class="watch-icon">↻</span>
+                            <span class="watch-label">Rotate</span>
+                        </button>
+                        <button id="watchFillBtn" type="button" title="Fill frame" aria-label="Fill frame">
+                            <span class="watch-icon">▣</span>
+                            <span class="watch-label" data-label="fill">Fill</span>
+                        </button>
+                        <button id="watchFullscreenBtn" type="button" title="Fullscreen" aria-label="Fullscreen">
+                            <span class="watch-icon">⛶</span>
+                            <span class="watch-label">Full</span>
+                        </button>
+                        <button id="watchPipBtn" type="button" title="Picture in Picture" aria-label="Picture in Picture">
+                            <span class="watch-icon">▤</span>
+                            <span class="watch-label">PiP</span>
+                        </button>
                     </div>
                 </div>
                 <button class="btn btn-secondary" id="closeRemoteBtn" style="width: 100%; margin-top: 1.25rem;">Close Video</button>

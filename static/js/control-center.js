@@ -28,6 +28,7 @@ const cameraNameInput = document.getElementById('cameraName');
 const watchVideoFrame = document.getElementById('watchVideoFrame');
 const watchRotateBtn = document.getElementById('watchRotateBtn');
 const watchFillBtn = document.getElementById('watchFillBtn');
+const watchFillLabel = watchFillBtn ? watchFillBtn.querySelector('.watch-label') : null;
 const remoteVideoEl = document.getElementById('remoteVideo');
 const recordingsState = {
     listEl: document.getElementById('recordingsList'),
@@ -625,7 +626,11 @@ function applyWatchVideoPresentation() {
         const fillActive = watchState.fitMode === 'fill';
         watchFillBtn.classList.toggle('active', fillActive);
         const actionLabel = fillActive ? 'Fit frame' : 'Fill frame';
-        watchFillBtn.textContent = fillActive ? 'Fit' : 'Fill';
+        if (watchFillLabel) {
+            watchFillLabel.textContent = fillActive ? 'Fit' : 'Fill';
+        } else {
+            watchFillBtn.textContent = fillActive ? 'Fit' : 'Fill';
+        }
         watchFillBtn.setAttribute('aria-label', actionLabel);
         watchFillBtn.setAttribute('title', actionLabel);
     }
