@@ -623,7 +623,11 @@ function applyWatchVideoPresentation() {
     if (watchVideoFrame) {
         const normalized = ((watchState.rotation % 360) + 360) % 360;
         watchVideoFrame.dataset.rotation = String(normalized);
-        watchVideoFrame.classList.toggle('fill', watchState.fitMode === 'fill');
+        const isFill = watchState.fitMode === 'fill';
+        watchVideoFrame.classList.toggle('fill', isFill);
+        watchVideoFrame.classList.toggle('fit', !isFill);
+        const rotated = normalized === 90 || normalized === 270;
+        watchVideoFrame.classList.toggle('rotated', rotated);
     }
     if (watchFillBtn) {
         const fillActive = watchState.fitMode === 'fill';
@@ -660,8 +664,9 @@ function resizeWatchFrame() {
     }
     const viewportHeight = Math.max(window.innerHeight || 0, 400);
     const viewportWidth = Math.max(window.innerWidth || 0, 320);
-    const heightAllowance = Math.max(220, viewportHeight - 200);
-    const widthAllowance = Math.max(180, Math.min(960, viewportWidth - 32));
+    const paddingAllowance = window.innerWidth <= 640 ? 16 : 40;
+    const heightAllowance = Math.max(220, viewportHeight - 160);
+    const widthAllowance = Math.max(220, viewportWidth - paddingAllowance);
     const aspect = getWatchEffectiveAspect();
     let width = widthAllowance;
     let height = width / aspect;
@@ -669,7 +674,8 @@ function resizeWatchFrame() {
         height = heightAllowance;
         width = height * aspect;
     }
-    height = Math.max(180, height);
+    width = Math.min(widthAllowance, width);
+    height = Math.max(180, Math.min(heightAllowance, height));
     watchVideoFrame.style.width = `${Math.round(width)}px`;
     watchVideoFrame.style.height = `${Math.round(height)}px`;
 }
