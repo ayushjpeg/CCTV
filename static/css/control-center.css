@@ -279,6 +279,7 @@ body {
     backdrop-filter: blur(14px);
     padding: 0.25rem 0.35rem;
     box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+    z-index: 5;
 }
 .watch-video-controls button {
     border: none;
@@ -290,6 +291,7 @@ body {
     border-radius: 999px;
     cursor: pointer;
     transition: background 0.2s, color 0.2s;
+    line-height: 1.1;
 }
 .watch-video-controls button:hover,
 .watch-video-controls button:focus-visible {
