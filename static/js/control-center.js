@@ -11,7 +11,6 @@ const TURN_SERVERS = [
 const socket = io(window.location.origin, { path: '/socket.io' });
 const SECURE_MEDIA_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const requiresSecureMediaContext = location.protocol !== 'https:' && !SECURE_MEDIA_HOSTS.has(location.hostname);
-let onlineUsersPollTimer = null;
 
 const viewerCounts = {};
 let knownCameras = [];
@@ -41,11 +40,88 @@ const recordingsState = {
     downloadBtn: document.getElementById('recordingDownloadBtn'),
     filterEl: document.getElementById('recordingsCameraFilter'),
     refreshBtn: document.getElementById('refreshRecordingsBtn'),
+    summaryEl: document.getElementById('recordingsSummary'),
+    statsEl: document.getElementById('recordingStats'),
+    favoriteBtn: document.getElementById('toggleFavoriteBtn'),
+    favoritesListEl: document.getElementById('favoritesList'),
+    favoritesCountEl: document.getElementById('favoritesCount'),
     clips: [],
+    favorites: [],
     loading: false,
     activeClip: null,
     autoTimer: null
 };
+
+const autoRecordControls = {
+    toggle: document.getElementById('autoRecordToggle'),
+    frequencyInput: document.getElementById('autoRecordFrequency'),
+    durationInput: document.getElementById('autoRecordDuration'),
+    statusEl: document.getElementById('autoRecordStatus'),
+    timer: null,
+    recorder: null,
+    chunks: [],
+    stream: null,
+    lastStartedAt: null
+};
+const autoStartToggle = document.getElementById('autoStartToggle');
+const notificationBtn = document.getElementById('notificationBtn');
+
+const watchRecorderControls = {
+    button: document.getElementById('watchRecordBtn'),
+    durationInput: document.getElementById('watchRecordDuration'),
+    labelInput: document.getElementById('watchRecordLabel'),
+    statusEl: document.getElementById('watchRecordStatus'),
+    recorder: null,
+    chunks: [],
+    timeout: null,
+    stream: null
+};
+
+const notificationState = {
+    permission: typeof Notification === 'undefined' ? 'denied' : Notification.permission
+};
+
+const AUTO_RECORD_STORAGE_KEY = 'rustyCam.autoRecord';
+const AUTO_START_STORAGE_KEY = 'rustyCam.autoStart';
+const VIEWER_LABEL_STORAGE_KEY = 'rustyCam.viewerLabel';
+
+function updateNotificationButton() {
+    if (!notificationBtn) return;
+    if (typeof Notification === 'undefined') {
+        notificationBtn.textContent = 'Alerts unavailable';
+        notificationBtn.disabled = true;
+        return;
+    }
+    const granted = Notification.permission === 'granted';
+    notificationBtn.textContent = granted ? 'Alerts Enabled' : 'Enable Alerts';
+    notificationBtn.classList.toggle('active', granted);
+}
+
+async function requestNotificationPermission() {
+    if (typeof Notification === 'undefined') return 'denied';
+    if (Notification.permission !== 'default') {
+        return Notification.permission;
+    }
+    try {
+        const permission = await Notification.requestPermission();
+        notificationState.permission = permission;
+        updateNotificationButton();
+        return permission;
+    } catch (err) {
+        console.warn('Notification permission failed', err);
+        return 'denied';
+    }
+}
+
+function notifyUser(title, body) {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission !== 'granted') return;
+    try {
+        new Notification(title, { body });
+    } catch (err) {
+        console.warn('Notification display failed', err);
+    }
+}
 
 let autoSuggestedCameraName = (cameraNameInput?.value?.trim()) || 'cam-01';
 let cameraNameManuallyEdited = false;
@@ -186,6 +262,14 @@ motionRecorder.percentEl = motionPercentEl;
 
 const DEFAULT_MOTION_THRESHOLD_PERCENT = 0.5;
 
+function clampNumber(value, min, max, fallback) {
+    let numeric = typeof value === 'number' ? value : parseFloat(value);
+    if (Number.isNaN(numeric)) {
+        numeric = fallback;
+    }
+    return Math.min(max, Math.max(min, numeric));
+}
+
 function clampMotionThresholdPercent(value) {
     let numeric = typeof value === 'number' ? value : parseFloat(value);
     if (Number.isNaN(numeric)) {
@@ -298,6 +382,228 @@ function toggleMotionPanel() {
     } else if (broadcastState.stream) {
         startMotionDetection();
     }
+}
+
+function getAutoRecordFrequency() {
+    if (!autoRecordControls.frequencyInput) return 10;
+    const value = clampNumber(autoRecordControls.frequencyInput.value, 1, 180, 10);
+    autoRecordControls.frequencyInput.value = value;
+    return value;
+}
+
+function getAutoRecordDuration() {
+    if (!autoRecordControls.durationInput) return 20;
+    const value = clampNumber(autoRecordControls.durationInput.value, 5, 300, 20);
+    autoRecordControls.durationInput.value = value;
+    return value;
+}
+
+function updateAutoRecordStatus(text = '', variant = 'info') {
+    if (!autoRecordControls.statusEl) return;
+    if (!text) {
+        autoRecordControls.statusEl.style.display = 'none';
+        return;
+    }
+    setStatus(autoRecordControls.statusEl, text, variant);
+}
+
+function stopScheduledRecorder() {
+    if (autoRecordControls.recorder && autoRecordControls.recorder.state !== 'inactive') {
+        try {
+            autoRecordControls.recorder.stop();
+        } catch (err) {
+            console.warn('Scheduled recorder stop failed', err);
+        }
+    }
+    autoRecordControls.recorder = null;
+    if (autoRecordControls.stream) {
+        autoRecordControls.stream.getTracks().forEach(track => track.stop());
+        autoRecordControls.stream = null;
+    }
+    autoRecordControls.chunks = [];
+}
+
+function stopAutoRecordScheduler() {
+    if (autoRecordControls.timer) {
+        clearInterval(autoRecordControls.timer);
+        autoRecordControls.timer = null;
+    }
+    stopScheduledRecorder();
+}
+
+async function triggerScheduledRecording(reason = 'scheduled capture') {
+    if (!broadcastState.active || !autoRecordControls.toggle?.checked) return;
+    if (autoRecordControls.recorder) return;
+    try {
+        await ensureBroadcastStream(reason);
+    } catch (err) {
+        updateAutoRecordStatus(err?.message || 'Unable to start scheduled capture.', 'error');
+        return;
+    }
+    if (!broadcastState.stream) {
+        updateAutoRecordStatus('Camera stream unavailable.', 'warn');
+        return;
+    }
+    const duration = getAutoRecordDuration();
+    const clone = broadcastState.stream.clone();
+    autoRecordControls.stream = clone;
+    autoRecordControls.chunks = [];
+    let recorder;
+    try {
+        recorder = new MediaRecorder(clone, { mimeType: 'video/webm;codecs=vp8,opus' });
+    } catch (err) {
+        recorder = new MediaRecorder(clone);
+    }
+    autoRecordControls.recorder = recorder;
+    recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size) {
+            autoRecordControls.chunks.push(event.data);
+        }
+    };
+    recorder.onstop = async () => {
+        const blob = new Blob(autoRecordControls.chunks, { type: 'video/webm' });
+        stopScheduledRecorder();
+        if (!blob.size || !broadcastState.cameraId) return;
+        try {
+            await uploadRecordingBlob('scheduled', {
+                cameraId: broadcastState.cameraId,
+                blob,
+                durationSeconds: duration,
+                metadata: {
+                    recorded_by: broadcastState.cameraId,
+                    frequency_minutes: getAutoRecordFrequency(),
+                    note: 'Scheduled capture'
+                },
+                notify: `Scheduled clip recorded for ${broadcastState.cameraId}`
+            });
+            updateAutoRecordStatus('Scheduled clip saved', 'success');
+            loadRecordings({ silent: true });
+        } catch (err) {
+            updateAutoRecordStatus(err?.message || 'Failed to save scheduled clip', 'error');
+        } finally {
+            if (broadcastState.mode === 'viewer-triggered' && !broadcastState.lastViewerCount) {
+                releaseBroadcastStream('Scheduled clip finished');
+            }
+        }
+    };
+    recorder.start();
+    updateAutoRecordStatus(`Recording heartbeat clip (${duration}s)`, 'warn');
+    setTimeout(() => {
+        if (recorder.state === 'recording') {
+            try {
+                recorder.stop();
+            } catch (err) {
+                console.warn('Scheduled capture stop failed', err);
+            }
+        }
+    }, duration * 1000);
+}
+
+function syncAutoRecordScheduler() {
+    stopAutoRecordScheduler();
+    if (!broadcastState.active || !autoRecordControls.toggle?.checked) {
+        updateAutoRecordStatus('Scheduled capture idle', 'info');
+        return;
+    }
+    const frequency = getAutoRecordFrequency();
+    updateAutoRecordStatus(`Recording every ${frequency} minute${frequency === 1 ? '' : 's'}`, 'info');
+    autoRecordControls.timer = setInterval(() => {
+        triggerScheduledRecording('scheduled capture loop');
+    }, frequency * 60 * 1000);
+}
+
+function persistAutoRecordSettings() {
+    if (!autoRecordControls.frequencyInput || !autoRecordControls.durationInput) return;
+    const payload = {
+        frequency: getAutoRecordFrequency(),
+        duration: getAutoRecordDuration(),
+        enabled: Boolean(autoRecordControls.toggle?.checked)
+    };
+    try {
+        localStorage.setItem(AUTO_RECORD_STORAGE_KEY, JSON.stringify(payload));
+    } catch (err) {
+        console.warn('Unable to persist auto record settings', err);
+    }
+    if (broadcastState.active) {
+        syncAutoRecordScheduler();
+    }
+}
+
+function hydrateAutoRecordSettings() {
+    if (!autoRecordControls.frequencyInput || !autoRecordControls.durationInput) return;
+    let stored = {};
+    try {
+        stored = JSON.parse(localStorage.getItem(AUTO_RECORD_STORAGE_KEY) || '{}');
+    } catch (err) {
+        stored = {};
+    }
+    if (stored.frequency) {
+        autoRecordControls.frequencyInput.value = stored.frequency;
+    }
+    if (stored.duration) {
+        autoRecordControls.durationInput.value = stored.duration;
+    }
+    if (autoRecordControls.toggle) {
+        autoRecordControls.toggle.checked = stored.enabled !== false;
+    }
+    getAutoRecordFrequency();
+    getAutoRecordDuration();
+}
+
+function initAutoStartPreference() {
+    if (!autoStartToggle) return;
+    try {
+        const stored = localStorage.getItem(AUTO_START_STORAGE_KEY);
+        if (stored !== null) {
+            autoStartToggle.checked = stored === 'true';
+        }
+    } catch (err) {
+        console.warn('Unable to read auto-start preference', err);
+    }
+    autoStartToggle.addEventListener('change', () => {
+        try {
+            localStorage.setItem(AUTO_START_STORAGE_KEY, String(autoStartToggle.checked));
+        } catch (err) {
+            console.warn('Unable to persist auto-start preference', err);
+        }
+    });
+}
+
+function maybeAutoStartBroadcast() {
+    if (!autoStartToggle || !autoStartToggle.checked || broadcastState.active) return;
+    if (requiresSecureMediaContext && !window.isSecureContext) {
+        setStatus(broadcastState.statusEl, 'Auto-start unavailable. Serve Rusty Cam over HTTPS or localhost.', 'warn');
+        return;
+    }
+    // Allow the UI to render before kicking off camera prompts.
+    setTimeout(() => {
+        if (!autoStartToggle.checked || broadcastState.active) return;
+        startBroadcast();
+    }, 400);
+}
+
+function persistViewerLabel(label) {
+    if (!watchRecorderControls.labelInput) return;
+    const value = label ?? watchRecorderControls.labelInput.value;
+    try {
+        localStorage.setItem(VIEWER_LABEL_STORAGE_KEY, value || '');
+    } catch (err) {
+        console.warn('Unable to persist viewer label', err);
+    }
+}
+
+function restoreViewerLabelPreference() {
+    if (!watchRecorderControls.labelInput) return;
+    try {
+        const stored = localStorage.getItem(VIEWER_LABEL_STORAGE_KEY);
+        if (stored) {
+            watchRecorderControls.labelInput.value = stored;
+        }
+    } catch (err) {
+        console.warn('Unable to read viewer label', err);
+    }
+    watchRecorderControls.labelInput.addEventListener('blur', () => persistViewerLabel());
+    watchRecorderControls.labelInput.addEventListener('change', () => persistViewerLabel());
 }
 
 function appendMotionClip(url, timestamp, bytes, cameraLabel) {
@@ -608,6 +914,73 @@ async function uploadMotionClip(blob) {
     }
 }
 
+async function uploadRecordingBlob(source = 'manual', options = {}) {
+    const {
+        cameraId,
+        blob,
+        filename,
+        timestamp = new Date().toISOString(),
+        durationSeconds,
+        metadata = {},
+        notify
+    } = options;
+
+    if (!blob || !blob.size) {
+        throw new Error('Recording data unavailable.');
+    }
+    if (!cameraId) {
+        throw new Error('Camera ID is required to save the clip.');
+    }
+
+    const endpointMap = {
+        manual: '/api/motion-clips/manual',
+        scheduled: '/api/motion-clips/scheduled',
+        motion: '/api/motion-clips'
+    };
+    const target = endpointMap[source] || endpointMap.motion;
+
+    const form = new FormData();
+    form.append('camera_id', cameraId);
+    form.append('timestamp', timestamp);
+    const safeName = filename || `${cameraId}-${Date.now()}.webm`;
+    form.append('clip', blob, safeName);
+    if (typeof durationSeconds === 'number' && !Number.isNaN(durationSeconds)) {
+        form.append('duration_seconds', String(durationSeconds));
+    }
+
+    Object.entries(metadata || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        const normalized = typeof value === 'boolean' ? (value ? 'true' : 'false') : value;
+        form.append(key, normalized);
+    });
+
+    let payload = {};
+    const response = await fetch(target, { method: 'POST', body: form });
+    try {
+        payload = await response.json();
+    } catch (err) {
+        if (!response.ok) {
+            throw new Error('Failed to save recording clip.');
+        }
+        throw err;
+    }
+    if (!response.ok || !payload.success) {
+        throw new Error(payload?.error || 'Failed to save recording clip.');
+    }
+
+    if (notify) {
+        if (typeof notify === 'string') {
+            notifyUser('Recording saved', notify);
+        } else if (typeof notify === 'object') {
+            const title = notify.title || 'Recording saved';
+            const body = notify.body || '';
+            notifyUser(title, body);
+        }
+    }
+
+    return payload;
+}
+
 const watchState = {
     peer: null,
     cameraId: null,
@@ -721,39 +1094,6 @@ applyWatchVideoPresentation();
 window.addEventListener('resize', resizeWatchFrame);
 document.addEventListener('fullscreenchange', resizeWatchFrame);
 
-const callState = {
-    username: null,
-    autoPickup: true,
-    callId: null,
-    participants: [],
-    peers: {},
-    remoteStreams: {},
-    pendingCallId: null,
-    incomingCallId: null,
-    localStream: null,
-    localVideo: document.getElementById('callLocalVideo'),
-    remoteGrid: document.getElementById('callRemoteGrid'),
-    statusEl: document.getElementById('callStatusBanner'),
-    presenceChip: document.getElementById('callPresenceChip'),
-    incomingBanner: document.getElementById('incomingCallBanner'),
-    incomingText: document.getElementById('incomingCallText'),
-    acceptBtn: document.getElementById('acceptCallBtn'),
-    declineBtn: document.getElementById('declineCallBtn'),
-    leaveBtn: document.getElementById('leaveCallBtn'),
-    participantsEl: document.getElementById('activeCallParticipants'),
-    onlineUsersEl: document.getElementById('onlineUsersList'),
-    helpEl: document.getElementById('callHelpText'),
-    lastSeenUsers: [],
-    micBtn: document.getElementById('callMicBtn'),
-    videoBtn: document.getElementById('callVideoBtn'),
-    muteIndicator: document.getElementById('callLocalMuteIndicator'),
-    audioEnabled: true,
-    videoEnabled: true
-};
-
-const callNameInput = document.getElementById('callNameInput');
-const autoPickupToggle = document.getElementById('autoPickupToggle');
-const saveCallProfileBtn = document.getElementById('saveCallProfileBtn');
 const closeRemoteBtn = document.getElementById('closeRemoteBtn');
 
 function switchTab(n) {
@@ -775,6 +1115,47 @@ if (recordingsState.filterEl) {
 if (recordingsState.listEl) {
     loadRecordings({ silent: true });
     startRecordingsAutoRefresh();
+}
+if (recordingsState.favoriteBtn) {
+    recordingsState.favoriteBtn.addEventListener('click', toggleFavoriteSelection);
+}
+if (notificationBtn) {
+    notificationBtn.addEventListener('click', () => {
+        if (typeof Notification === 'undefined') return;
+        if (Notification.permission === 'granted') {
+            notificationBtn.blur();
+            return;
+        }
+        requestNotificationPermission();
+    });
+    updateNotificationButton();
+}
+
+hydrateAutoRecordSettings();
+const handleAutoRecordSettingsChange = () => {
+    persistAutoRecordSettings();
+    syncAutoRecordScheduler();
+};
+if (autoRecordControls.frequencyInput) {
+    ['change', 'blur'].forEach((eventName) => {
+        autoRecordControls.frequencyInput.addEventListener(eventName, handleAutoRecordSettingsChange);
+    });
+}
+if (autoRecordControls.durationInput) {
+    ['change', 'blur'].forEach((eventName) => {
+        autoRecordControls.durationInput.addEventListener(eventName, handleAutoRecordSettingsChange);
+    });
+}
+if (autoRecordControls.toggle) {
+    autoRecordControls.toggle.addEventListener('change', handleAutoRecordSettingsChange);
+}
+initAutoStartPreference();
+restoreViewerLabelPreference();
+syncAutoRecordScheduler();
+maybeAutoStartBroadcast();
+
+if (watchRecorderControls.button) {
+    watchRecorderControls.button.addEventListener('click', startViewerRecording);
 }
 
 function setStatus(el, text, variant = 'info') {
@@ -838,16 +1219,58 @@ function showRecordingsStatus(text = '', variant = 'info') {
 }
 
 function highlightRecordingsSelection() {
-    if (!recordingsState.listEl) return;
-    const cards = recordingsState.listEl.querySelectorAll('.recordings-card');
-    cards.forEach((card) => {
-        const cameraId = card.getAttribute('data-camera');
-        const filename = card.getAttribute('data-file');
-        const isActive = recordingsState.activeClip &&
-            recordingsState.activeClip.camera_id === cameraId &&
-            recordingsState.activeClip.filename === filename;
-        card.classList.toggle('active', Boolean(isActive));
+    const key = recordingsState.activeClip ? `${recordingsState.activeClip.camera_id}/${recordingsState.activeClip.filename}` : null;
+    document.querySelectorAll('.recordings-card').forEach((card) => {
+        const cardKey = `${card.getAttribute('data-camera')}/${card.getAttribute('data-file')}`;
+        card.classList.toggle('active', key && cardKey === key);
     });
+}
+
+function isActiveClip(clip) {
+    if (!clip || !recordingsState.activeClip) return false;
+    return recordingsState.activeClip.camera_id === clip.camera_id && recordingsState.activeClip.filename === clip.filename;
+}
+
+function createRecordingCardMarkup(clip, options = {}) {
+    const { active = false } = options;
+    const timestamp = formatClipTimestamp(clip.recorded_at);
+    const sizeLabel = formatFileSize(clip.bytes);
+    const tags = [];
+    if (clip.source) {
+        tags.push(clip.source.replace(/-/g, ' '));
+    }
+    if (clip.duration_seconds) {
+        tags.push(`${Math.round(clip.duration_seconds)}s`);
+    }
+    const tagsMarkup = tags.length ? `<div class="clip-tags">${tags.map((tag) => `<span class="clip-chip">${tag}</span>`).join('')}</div>` : '';
+    const favoriteIcon = clip.favorite ? '<span class="clip-favorite">★</span>' : '';
+    return `
+        <div class="recordings-card ${active ? 'active' : ''}" data-camera="${clip.camera_id}" data-file="${clip.filename}">
+            <div class="clip-title">${timestamp}</div>
+            <div class="clip-meta"><span>${clip.camera_id}</span><span>${sizeLabel}</span>${favoriteIcon}</div>
+            ${tagsMarkup}
+        </div>
+    `;
+}
+
+function bindRecordingCardEvents(container) {
+    if (!container) return;
+    container.querySelectorAll('.recordings-card').forEach((card) => {
+        card.addEventListener('click', () => {
+            const cameraId = card.getAttribute('data-camera');
+            const filename = card.getAttribute('data-file');
+            const clip = findClip(cameraId, filename);
+            if (clip) {
+                selectRecording(clip);
+            }
+        });
+    });
+}
+
+function findClip(cameraId, filename) {
+    return recordingsState.clips.find((entry) => entry.camera_id === cameraId && entry.filename === filename) ||
+        recordingsState.favorites.find((entry) => entry.camera_id === cameraId && entry.filename === filename) ||
+        null;
 }
 
 function renderRecordingsList() {
@@ -857,41 +1280,112 @@ function renderRecordingsList() {
         highlightRecordingsSelection();
         return;
     }
-    recordingsState.listEl.innerHTML = recordingsState.clips.map((clip) => {
-        const timestamp = formatClipTimestamp(clip.recorded_at);
-        const sizeLabel = formatFileSize(clip.bytes);
-        const active = recordingsState.activeClip &&
-            recordingsState.activeClip.camera_id === clip.camera_id &&
-            recordingsState.activeClip.filename === clip.filename ? 'active' : '';
-        return `
-            <div class="recordings-card ${active}" data-camera="${clip.camera_id}" data-file="${clip.filename}">
-                <div class="clip-title">${timestamp}</div>
-                <div class="clip-meta"><span>${clip.camera_id}</span><span>${sizeLabel}</span></div>
-            </div>
-        `;
-    }).join('');
-    recordingsState.listEl.querySelectorAll('.recordings-card').forEach((card) => {
-        card.addEventListener('click', () => {
-            const cameraId = card.getAttribute('data-camera');
-            const filename = card.getAttribute('data-file');
-            const clip = recordingsState.clips.find((entry) => entry.camera_id === cameraId && entry.filename === filename);
-            if (clip) {
-                selectRecording(clip);
-            }
+    recordingsState.listEl.innerHTML = recordingsState.clips
+        .map((clip) => createRecordingCardMarkup(clip, { active: isActiveClip(clip) }))
+        .join('');
+    bindRecordingCardEvents(recordingsState.listEl);
+}
+
+function renderFavoritesList(favorites = []) {
+    if (!recordingsState.favoritesListEl) return;
+    recordingsState.favorites = favorites.slice();
+    if (recordingsState.favoritesCountEl) {
+        recordingsState.favoritesCountEl.textContent = String(favorites.length);
+    }
+    if (!favorites.length) {
+        recordingsState.favoritesListEl.innerHTML = '<div class="recordings-empty" style="padding: 1.5rem 0.5rem;">Star clips to pin them here.</div>';
+        highlightRecordingsSelection();
+        return;
+    }
+    recordingsState.favoritesListEl.innerHTML = favorites
+        .map((clip) => createRecordingCardMarkup(clip, { active: isActiveClip(clip) }))
+        .join('');
+    bindRecordingCardEvents(recordingsState.favoritesListEl);
+    highlightRecordingsSelection();
+}
+
+function updateRecordingsSummary(summary = {}) {
+    if (!recordingsState.summaryEl) return;
+    const clipsNode = recordingsState.summaryEl.querySelector('[data-field="clips"]');
+    const favNode = recordingsState.summaryEl.querySelector('[data-field="favorites"]');
+    const storageNode = recordingsState.summaryEl.querySelector('[data-field="storage"]');
+    if (clipsNode) clipsNode.textContent = String(summary.total_clips ?? recordingsState.clips.length ?? 0);
+    if (favNode) favNode.textContent = String(summary.favorite_clips ?? recordingsState.favorites.length ?? 0);
+    if (storageNode) {
+        const bytes = summary.total_bytes;
+        storageNode.textContent = typeof bytes === 'number' ? formatFileSize(bytes) : '—';
+    }
+}
+
+function updateRecordingStats(clip) {
+    if (!recordingsState.statsEl) return;
+    if (!clip) {
+        recordingsState.statsEl.innerHTML = '<div><dt>Camera</dt><dd>—</dd></div><div><dt>Duration</dt><dd>—</dd></div><div><dt>Source</dt><dd>—</dd></div><div><dt>Downloads</dt><dd>0</dd></div>';
+        return;
+    }
+    const stats = clip.stats || {};
+    const rows = [
+        { label: 'Camera', value: clip.camera_id || '—' },
+        { label: 'Duration', value: clip.duration_seconds ? `${Math.round(clip.duration_seconds)}s` : '—' },
+        { label: 'Source', value: (clip.source || 'motion').replace(/-/g, ' ') },
+        { label: 'Downloads', value: stats.downloads ?? 0 }
+    ];
+    recordingsState.statsEl.innerHTML = rows.map((row) => `
+        <div>
+            <dt>${row.label}</dt>
+            <dd>${row.value}</dd>
+        </div>
+    `).join('');
+}
+
+function setFavoriteButtonState(clip) {
+    if (!recordingsState.favoriteBtn) return;
+    if (!clip) {
+        recordingsState.favoriteBtn.disabled = true;
+        recordingsState.favoriteBtn.classList.remove('active');
+        recordingsState.favoriteBtn.textContent = '☆ Favorite';
+        return;
+    }
+    recordingsState.favoriteBtn.disabled = false;
+    recordingsState.favoriteBtn.classList.toggle('active', Boolean(clip.favorite));
+    recordingsState.favoriteBtn.textContent = clip.favorite ? '★ Favorited' : '☆ Favorite';
+}
+
+async function toggleFavoriteSelection() {
+    if (!recordingsState.activeClip) return;
+    const clip = recordingsState.activeClip;
+    const nextFavorite = !clip.favorite;
+    setFavoriteButtonState({ ...clip, favorite: nextFavorite });
+    try {
+        const response = await fetch(`/api/motion-clips/${encodeURIComponent(clip.camera_id)}/${encodeURIComponent(clip.filename)}/favorite`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ favorite: nextFavorite })
         });
-    });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+            throw new Error(payload?.error || 'Unable to update favorite');
+        }
+        clip.favorite = nextFavorite;
+        notifyUser('Favorites updated', `${clip.camera_id} clip ${nextFavorite ? 'starred' : 'unstarred'}.`);
+        loadRecordings({ silent: true });
+    } catch (err) {
+        setFavoriteButtonState(clip);
+        showRecordingsStatus(err?.message || 'Unable to update favorite', 'error');
+    }
 }
 
 function selectRecording(clip, options = {}) {
     if (!clip) return;
     const { autoplay = true } = options;
-    recordingsState.activeClip = { camera_id: clip.camera_id, filename: clip.filename };
+    recordingsState.activeClip = clip;
     if (recordingsState.titleEl) {
         recordingsState.titleEl.textContent = formatClipTimestamp(clip.recorded_at);
     }
     if (recordingsState.metaEl) {
         const sizeLabel = formatFileSize(clip.bytes);
-        recordingsState.metaEl.textContent = `${clip.camera_id} · ${sizeLabel}`;
+        const sourceLabel = (clip.source || 'motion').replace(/-/g, ' ');
+        recordingsState.metaEl.textContent = `${clip.camera_id} · ${sizeLabel} · ${sourceLabel}`;
     }
     if (recordingsState.videoEl) {
         const needsSrcUpdate = recordingsState.videoEl.getAttribute('src') !== clip.clip_url;
@@ -907,6 +1401,8 @@ function selectRecording(clip, options = {}) {
         recordingsState.downloadBtn.classList.remove('disabled');
         recordingsState.downloadBtn.setAttribute('download', clip.filename);
     }
+    updateRecordingStats(clip);
+    setFavoriteButtonState(clip);
     highlightRecordingsSelection();
 }
 
@@ -946,10 +1442,12 @@ async function loadRecordings(options = {}) {
         }
         recordingsState.clips = payload.clips || [];
         updateRecordingFilterOptions(payload.cameras || []);
+        renderFavoritesList(payload.favorites || []);
+        updateRecordingsSummary(payload.summary || {});
         renderRecordingsList();
         if (recordingsState.clips.length) {
-            const existing = recordingsState.activeClip && recordingsState.clips.find((clip) =>
-                clip.camera_id === recordingsState.activeClip.camera_id && clip.filename === recordingsState.activeClip.filename);
+            const currentKey = recordingsState.activeClip ? `${recordingsState.activeClip.camera_id}/${recordingsState.activeClip.filename}` : null;
+            const existing = currentKey ? recordingsState.clips.find((clip) => `${clip.camera_id}/${clip.filename}` === currentKey) : null;
             selectRecording(existing || recordingsState.clips[0], { autoplay: !existing });
             if (!silent) {
                 const total = payload.total ?? recordingsState.clips.length;
@@ -962,6 +1460,8 @@ async function loadRecordings(options = {}) {
             highlightRecordingsSelection();
             if (recordingsState.titleEl) recordingsState.titleEl.textContent = 'Select a clip to begin playback.';
             if (recordingsState.metaEl) recordingsState.metaEl.textContent = 'Timestamp · Camera';
+            updateRecordingStats(null);
+            setFavoriteButtonState(null);
             if (recordingsState.videoEl) {
                 recordingsState.videoEl.removeAttribute('src');
                 if (typeof recordingsState.videoEl.load === 'function') {
@@ -989,45 +1489,6 @@ function startRecordingsAutoRefresh() {
         if (document.visibilityState === 'hidden') return;
         loadRecordings({ silent: true });
     }, 60000);
-}
-
-function startOnlineUsersPolling() {
-    if (onlineUsersPollTimer) return;
-    onlineUsersPollTimer = setInterval(() => {
-        socket.emit('request_online_users');
-    }, 10000);
-}
-
-function stopOnlineUsersPolling() {
-    if (!onlineUsersPollTimer) return;
-    clearInterval(onlineUsersPollTimer);
-    onlineUsersPollTimer = null;
-}
-
-function updateCallHelp(users = callState.lastSeenUsers || []) {
-    if (!callState.helpEl) return;
-    callState.lastSeenUsers = users;
-    let message = '';
-    let variant = 'info';
-
-    if (requiresSecureMediaContext) {
-        message = 'Browsers block camera/mic on HTTP when using a LAN URL. Access the console over HTTPS (for example via Cloudflare Tunnel) or from localhost to place calls.';
-        variant = 'warn';
-    } else if (!callState.username) {
-        message = 'Choose a display name and click "Go Online" to enable the call controls.';
-    } else {
-        const others = users.filter(u => u.name !== callState.username);
-        if (!others.length) {
-            message = 'Waiting for another operator to appear online. Open a second browser window or device to test calls.';
-            variant = 'warn';
-        }
-    }
-
-    if (message) {
-        setStatus(callState.helpEl, message, variant);
-    } else {
-        callState.helpEl.style.display = 'none';
-    }
 }
 
 function updateBroadcastViewerCount() {
@@ -1160,6 +1621,7 @@ async function startBroadcast() {
             releaseBroadcastStream('Standby mode');
             setStatus(broadcastState.statusEl, 'Standby until a viewer joins.', 'info');
         }
+        syncAutoRecordScheduler();
     } catch (err) {
         socket.emit('stop_broadcast', { camera_id: cameraName });
         stopBroadcast({ skipEmit: true });
@@ -1171,6 +1633,8 @@ function stopBroadcast(options = {}) {
     const { skipEmit = false } = options;
     if (!broadcastState.active && !broadcastState.stream) return;
     releaseBroadcastStream();
+    stopAutoRecordScheduler();
+    updateAutoRecordStatus('Scheduled capture idle', 'info');
     if (broadcastState.heartbeatTimer) {
         clearInterval(broadcastState.heartbeatTimer);
         broadcastState.heartbeatTimer = null;
@@ -1350,6 +1814,7 @@ function scheduleWatchRetry() {
 }
 
 function closeRemoteVideo({ keepModal = false, skipEmit = false, manual = true } = {}) {
+    stopViewerRecording();
     if (watchState.retryTimer) {
         clearTimeout(watchState.retryTimer);
         watchState.retryTimer = null;
@@ -1451,9 +1916,6 @@ if (watchPipBtn) {
         togglePictureInPicture(remoteVideoEl);
     };
 }
-document.getElementById('callLocalFullscreenBtn').onclick = () => {
-    toggleFullscreen(document.getElementById('callLocalVideo'));
-};
 
 document.addEventListener('visibilitychange', () => {
     if (
@@ -1467,292 +1929,118 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
-// -------------------- Call Hub --------------------
-
-function renderOnlineUsers(users = []) {
-    callState.lastSeenUsers = users.slice();
-    if (!users.length) {
-        callState.onlineUsersEl.innerHTML = '<div class="call-empty-state">No one is online yet.</div>';
-        updateCallHelp(users);
+function updateWatchRecorderStatus(text = '', variant = 'info') {
+    if (!watchRecorderControls.statusEl) return;
+    if (!text) {
+        watchRecorderControls.statusEl.style.display = 'none';
         return;
     }
-    callState.onlineUsersEl.innerHTML = users.map(user => {
-        const busy = user.in_call;
-        const meta = busy ? 'In a call' : (user.auto_pickup ? 'Auto pickup on' : 'Manual pickup');
-        let disableReason = '';
-        if (!callState.username) {
-            disableReason = 'Click "Go Online" to start calling.';
-        } else if (user.name === callState.username) {
-            disableReason = 'This is you.';
-        } else if (busy) {
-            disableReason = `${user.name} is already in a call.`;
-        }
-        const disabled = Boolean(disableReason);
-        const titleAttr = disableReason ? `title="${disableReason.replace(/"/g, '&quot;')}"` : '';
-        return `
-            <div class="online-user-card ${busy ? 'busy' : ''}" data-user="${user.name}">
-                <div>
-                    <div style="font-weight:600;">${user.name}</div>
-                    <div class="meta">${meta}</div>
-                </div>
-                <button class="btn btn-secondary" ${disabled ? 'disabled' : ''} ${titleAttr}>Call</button>
-            </div>
-        `;
-    }).join('');
-    callState.onlineUsersEl.querySelectorAll('.online-user-card').forEach(card => {
-        const target = card.getAttribute('data-user');
-        const button = card.querySelector('button');
-        if (button && !button.disabled) {
-            button.addEventListener('click', () => startCall(target));
-        }
-    });
-    updateCallHelp(users);
+    setStatus(watchRecorderControls.statusEl, text, variant);
 }
 
-function updatePresenceChip() {
-    if (!callState.presenceChip) return;
-    if (!callState.username) {
-        callState.presenceChip.textContent = 'Offline';
-        callState.presenceChip.className = 'call-status-chip idle';
+function resetWatchRecorderUI() {
+    if (!watchRecorderControls.button) return;
+    watchRecorderControls.button.textContent = 'Record Viewer Clip';
+    watchRecorderControls.button.classList.remove('recording');
+}
+
+function stopViewerRecording() {
+    if (watchRecorderControls.timeout) {
+        clearTimeout(watchRecorderControls.timeout);
+        watchRecorderControls.timeout = null;
+    }
+    if (watchRecorderControls.recorder && watchRecorderControls.recorder.state === 'recording') {
+        try {
+            watchRecorderControls.recorder.stop();
+        } catch (err) {
+            console.warn('Viewer recorder stop failed', err);
+        }
+    } else {
+        resetWatchRecorderUI();
+    }
+}
+
+async function startViewerRecording() {
+    if (!watchRecorderControls.button) return;
+    if (watchRecorderControls.recorder) {
+        stopViewerRecording();
         return;
     }
-    callState.presenceChip.textContent = callState.callId ? 'In Call' : 'Online';
-    callState.presenceChip.className = 'call-status-chip ' + (callState.callId ? 'live' : 'idle');
-}
-
-async function ensureCallLocalStream() {
-    if (callState.localStream) return callState.localStream;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setStatus(callState.statusEl, 'Camera/microphone capture is not supported in this browser.', 'error');
-        throw new Error('getUserMedia unsupported');
+    if (!watchState.remoteStream) {
+        updateWatchRecorderStatus('Connect to a camera before recording.', 'warn');
+        return;
     }
+    const duration = clampNumber(watchRecorderControls.durationInput?.value || 20, 5, 120, 20);
+    if (watchRecorderControls.durationInput) {
+        watchRecorderControls.durationInput.value = duration;
+    }
+    const clone = watchState.remoteStream.clone();
+    watchRecorderControls.stream = clone;
+    watchRecorderControls.chunks = [];
+    let recorder;
     try {
-        callState.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        callState.localVideo.srcObject = callState.localStream;
-        callState.audioEnabled = true;
-        callState.videoEnabled = true;
-        updateCallMediaButtons();
-        return callState.localStream;
+        recorder = new MediaRecorder(clone, { mimeType: 'video/webm;codecs=vp8,opus' });
     } catch (err) {
-        let message = err?.message || 'Unable to access camera/microphone.';
-        if (requiresSecureMediaContext) {
-            message = 'Browser blocked camera/mic because this page was loaded over HTTP. Use HTTPS or run from localhost to place calls.';
-        } else if (err?.name === 'NotAllowedError') {
-            message = 'Permission to use camera/microphone was denied. Allow access and try again.';
-        }
-        setStatus(callState.statusEl, message, 'error');
-        throw err;
+        recorder = new MediaRecorder(clone);
     }
-}
-
-function toggleCallMic() {
-    if (!callState.localStream) return;
-    callState.audioEnabled = !callState.audioEnabled;
-    callState.localStream.getAudioTracks().forEach(track => {
-        track.enabled = callState.audioEnabled;
-    });
-    updateCallMediaButtons();
-}
-
-function toggleCallVideo() {
-    if (!callState.localStream) return;
-    callState.videoEnabled = !callState.videoEnabled;
-    callState.localStream.getVideoTracks().forEach(track => {
-        track.enabled = callState.videoEnabled;
-    });
-    updateCallMediaButtons();
-}
-
-function updateCallMediaButtons() {
-    if (callState.micBtn) {
-        callState.micBtn.classList.toggle('active', callState.audioEnabled);
-        callState.micBtn.classList.toggle('muted', !callState.audioEnabled);
-        callState.micBtn.innerHTML = `<span>${callState.audioEnabled ? '🎤' : '🔇'}</span> Mic`;
-    }
-    if (callState.videoBtn) {
-        callState.videoBtn.classList.toggle('active', callState.videoEnabled);
-        callState.videoBtn.classList.toggle('muted', !callState.videoEnabled);
-        callState.videoBtn.innerHTML = `<span>${callState.videoEnabled ? '📹' : '📷'}</span> Video`;
-    }
-    if (callState.muteIndicator) {
-        callState.muteIndicator.classList.toggle('show', !callState.audioEnabled);
-    }
-}
-
-function teardownCall(message = 'Call ended') {
-    if (callState.pendingCallId) {
-        callState.pendingCallId = null;
-    }
-    Object.values(callState.peers).forEach(pc => pc.close());
-    callState.peers = {};
-    callState.remoteStreams = {};
-    callState.remoteGrid.innerHTML = '<div class="call-empty-state">Remote video feeds will appear here when you join a call.</div>';
-    if (callState.localStream) {
-        callState.localStream.getTracks().forEach(track => track.stop());
-        callState.localStream = null;
-        callState.localVideo.srcObject = null;
-    }
-    callState.callId = null;
-    callState.participants = [];
-    callState.leaveBtn.disabled = true;
-    callState.incomingBanner.classList.add('hidden');
-    callState.incomingCallId = null;
-    callState.micBtn.disabled = true;
-    callState.videoBtn.disabled = true;
-    renderCallParticipants();
-    setStatus(callState.statusEl, message, 'info');
-    updatePresenceChip();
-}
-
-function renderCallParticipants() {
-    if (!callState.participants.length) {
-        callState.participantsEl.innerHTML = '<span class="pill">No active call</span>';
-        return;
-    }
-    callState.participantsEl.innerHTML = callState.participants.map(name => `<span class="pill">${name}</span>`).join('');
-}
-
-function ensureRemoteVideo(user) {
-    let tile = document.getElementById(`remote-${user}`);
-    if (!tile) {
-        tile = document.createElement('div');
-        tile.className = 'video-tile';
-        tile.id = `remote-${user}`;
-        tile.innerHTML = `<div class="video-label">${user}</div><video autoplay playsinline class="call-video"></video>`;
-        if (callState.remoteGrid.children.length === 1 && callState.remoteGrid.firstElementChild.classList.contains('call-empty-state')) {
-            callState.remoteGrid.innerHTML = '';
-        }
-        callState.remoteGrid.appendChild(tile);
-    }
-    return tile.querySelector('video');
-}
-
-function removeRemoteVideo(user) {
-    const tile = document.getElementById(`remote-${user}`);
-    if (tile) {
-        const video = tile.querySelector('video');
-        if (video && video.srcObject) {
-            video.srcObject.getTracks().forEach(track => track.stop());
-        }
-        tile.remove();
-    }
-    if (!callState.remoteGrid.children.length) {
-        callState.remoteGrid.innerHTML = '<div class="call-empty-state">Remote video feeds will appear here when you join a call.</div>';
-    }
-}
-
-function createCallPeer(target) {
-    const pc = new RTCPeerConnection({ iceServers: TURN_SERVERS, iceTransportPolicy: 'all' });
-    if (callState.localStream) {
-        callState.localStream.getTracks().forEach(track => pc.addTrack(track, callState.localStream));
-    }
-    pc.onicecandidate = (event) => {
-        if (event.candidate) {
-            socket.emit('call_webrtc_ice', { call_id: callState.callId, target, candidate: event.candidate });
+    watchRecorderControls.recorder = recorder;
+    watchRecorderControls.button.textContent = 'Stop Recording';
+    watchRecorderControls.button.classList.add('recording');
+    recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size) {
+            watchRecorderControls.chunks.push(event.data);
         }
     };
-    pc.ontrack = (event) => {
-        const video = ensureRemoteVideo(target);
-        video.srcObject = event.streams[0];
-    };
-    pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'failed') {
-            pc.restartIce?.();
+    recorder.onstop = async () => {
+        const blob = new Blob(watchRecorderControls.chunks, { type: 'video/webm' });
+        watchRecorderControls.recorder = null;
+        watchRecorderControls.chunks = [];
+        if (watchRecorderControls.stream) {
+            watchRecorderControls.stream.getTracks().forEach(track => track.stop());
+            watchRecorderControls.stream = null;
+        }
+        resetWatchRecorderUI();
+        if (!blob.size) {
+            updateWatchRecorderStatus('', 'info');
+            return;
+        }
+        const label = (watchRecorderControls.labelInput?.value?.trim()) || 'Viewer';
+        persistViewerLabel(label);
+        try {
+            const targetCamera = watchState.cameraId || broadcastState.cameraId || 'viewer';
+            await uploadRecordingBlob('manual', {
+                cameraId: targetCamera,
+                blob,
+                durationSeconds: duration,
+                metadata: {
+                    recorded_by: label,
+                    note: watchRecorderControls.labelInput?.value?.trim() || 'Viewer capture'
+                },
+                notify: `Viewer clip saved from ${targetCamera}`
+            });
+            updateWatchRecorderStatus('Viewer clip saved', 'success');
+            loadRecordings({ silent: true });
+        } catch (err) {
+            updateWatchRecorderStatus(err?.message || 'Failed to save clip', 'error');
         }
     };
-    callState.peers[target] = pc;
-    return pc;
+    recorder.start();
+    updateWatchRecorderStatus(`Recording for ${duration} seconds`, 'warn');
+    watchRecorderControls.timeout = setTimeout(() => stopViewerRecording(), duration * 1000);
 }
 
-async function connectToParticipant(user) {
-    if (!callState.callId || user === callState.username) return;
-    await ensureCallLocalStream();
-    let pc = callState.peers[user];
-    if (!pc) pc = createCallPeer(user);
-    const shouldInitiate = callState.username.localeCompare(user) < 0;
-    if (shouldInitiate && !pc.__initiated) {
-        pc.__initiated = true;
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('call_webrtc_offer', { call_id: callState.callId, target: user, sdp: offer.sdp });
-    }
-}
-
-function syncCallPeers() {
-    callState.participants.forEach(user => {
-        if (user === callState.username) return;
-        connectToParticipant(user);
-    });
-    Object.keys(callState.peers).forEach(user => {
-        if (!callState.participants.includes(user)) {
-            callState.peers[user].close();
-            delete callState.peers[user];
-            removeRemoteVideo(user);
-        }
-    });
-    renderCallParticipants();
-    updatePresenceChip();
-}
-
-function startCall(target) {
-    if (!callState.username) {
-        setStatus(callState.statusEl, 'Save a profile first.', 'warn');
-        return;
-    }
-    socket.emit('call_user', { target });
-    setStatus(callState.statusEl, `Calling ${target}...`, 'info');
-}
-
-function saveCallProfile() {
-    const name = callNameInput.value.trim();
-    if (!name) {
-        setStatus(callState.statusEl, 'Enter a display name to go online.', 'warn');
-        return;
-    }
-    const autoPickup = autoPickupToggle.checked;
-    socket.emit('register_user', { name, auto_pickup: autoPickup });
-    localStorage.setItem('callName', name);
-    localStorage.setItem('callAutoPickup', String(autoPickup));
-}
-
-function leaveCall() {
-    if (!callState.callId) return;
-    socket.emit('leave_call');
-    teardownCall('Left call');
-}
-
-saveCallProfileBtn.addEventListener('click', saveCallProfile);
-callNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCallProfile(); });
-autoPickupToggle.addEventListener('change', () => {
-    if (callState.username) {
-        socket.emit('update_auto_pickup', { enabled: autoPickupToggle.checked });
-    }
-});
-callState.leaveBtn.addEventListener('click', leaveCall);
-callState.micBtn.addEventListener('click', toggleCallMic);
-callState.videoBtn.addEventListener('click', toggleCallVideo);
 closeRemoteBtn.addEventListener('click', () => closeRemoteVideo({ manual: true }));
-
-// Restore saved profile
-const storedName = localStorage.getItem('callName');
-const storedAuto = localStorage.getItem('callAutoPickup');
-if (storedName) callNameInput.value = storedName;
-if (storedAuto !== null) autoPickupToggle.checked = storedAuto === 'true';
-updateCallHelp();
 
 // -------------------- Socket Events --------------------
 
 socket.on('connect', () => {
     socket.emit('request_viewer_counts');
-    socket.emit('request_online_users');
-    startOnlineUsersPolling();
     if (broadcastState.active && broadcastState.cameraId) {
         resyncBroadcastPresence('Connection restored — camera synced with viewers.');
     }
 });
 
 socket.on('disconnect', () => {
-    stopOnlineUsersPolling();
     if (broadcastState.active) {
         setStatus(broadcastState.statusEl, 'Connection interrupted. Reconnecting...', 'warn');
     }
@@ -1811,109 +2099,7 @@ socket.on('ice_candidate', (data) => {
     }
 });
 
-socket.on('user_registered', (data) => {
-    callState.username = data.name;
-    callState.autoPickup = data.auto_pickup;
-    autoPickupToggle.checked = data.auto_pickup;
-    setStatus(callState.statusEl, `Online as ${data.name}`, 'success');
-    updatePresenceChip();
-    updateCallHelp(callState.lastSeenUsers || []);
-    socket.emit('request_online_users');
-});
-
-socket.on('online_users', (data) => {
-    renderOnlineUsers(data.users || []);
-});
-
-socket.on('call_pending', (data) => {
-    callState.pendingCallId = data.call_id;
-    setStatus(callState.statusEl, `Waiting for ${data.target}...`, 'info');
-});
-
-socket.on('incoming_call', (data) => {
-    callState.incomingBanner.classList.remove('hidden');
-    callState.incomingCallId = data.call_id;
-    callState.incomingText.textContent = `${data.from} is calling...`;
-    callState.acceptBtn.onclick = () => {
-        socket.emit('respond_call', { call_id: data.call_id, accept: true });
-        callState.incomingBanner.classList.add('hidden');
-    };
-    callState.declineBtn.onclick = () => {
-        socket.emit('respond_call', { call_id: data.call_id, accept: false });
-        callState.incomingBanner.classList.add('hidden');
-    };
-});
-
-socket.on('call_declined', () => {
-    setStatus(callState.statusEl, 'Call declined.', 'warn');
-    callState.pendingCallId = null;
-});
-
-socket.on('call_joined', async (payload) => {
-    callState.callId = payload.call_id;
-    callState.participants = payload.participants || [];
-    callState.leaveBtn.disabled = false;
-    callState.micBtn.disabled = false;
-    callState.videoBtn.disabled = false;
-    setStatus(callState.statusEl, 'In call', 'success');
-    callState.incomingBanner.classList.add('hidden');
-    await ensureCallLocalStream();
-    syncCallPeers();
-});
-
-socket.on('call_participant_joined', (data) => {
-    callState.participants = data.participants || callState.participants;
-    syncCallPeers();
-    setStatus(callState.statusEl, `${data.user} joined the call`, 'info');
-});
-
-socket.on('call_participant_left', (data) => {
-    callState.participants = data.participants || callState.participants.filter(p => p !== data.user);
-    const pc = callState.peers[data.user];
-    if (pc) {
-        pc.close();
-        delete callState.peers[data.user];
-    }
-    removeRemoteVideo(data.user);
-    syncCallPeers();
-    setStatus(callState.statusEl, `${data.user} left the call`, 'warn');
-});
-
-socket.on('call_ended', () => {
-    teardownCall('Call ended');
-});
-
-socket.on('call_error', (data) => {
-    setStatus(callState.statusEl, data.message || 'Call error', 'error');
-});
-
-socket.on('call_webrtc_offer', async (data) => {
-    if (data.call_id !== callState.callId) return;
-    await ensureCallLocalStream();
-    let pc = callState.peers[data.from];
-    if (!pc) pc = createCallPeer(data.from);
-    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: data.sdp }));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socket.emit('call_webrtc_answer', { call_id: callState.callId, target: data.from, sdp: answer.sdp });
-});
-
-socket.on('call_webrtc_answer', async (data) => {
-    const pc = callState.peers[data.from];
-    if (pc && pc.signalingState === 'have-local-offer') {
-        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: data.sdp }));
-    }
-});
-
-socket.on('call_webrtc_ice', (data) => {
-    const pc = callState.peers[data.from];
-    if (pc) {
-        pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(console.warn);
-    }
-});
-
 window.addEventListener('beforeunload', () => {
     if (broadcastState.active) stopBroadcast();
     closeRemoteVideo({ manual: true });
-    if (callState.callId) socket.emit('leave_call');
 });

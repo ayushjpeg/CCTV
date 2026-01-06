@@ -10,6 +10,9 @@
 <body>
     <div class="navbar">
         <h1>Rusty Cam</h1>
+        <div class="navbar-actions">
+            <button class="chip-btn" id="notificationBtn">Enable Alerts</button>
+        </div>
     </div>
 
     <div class="container">
@@ -17,7 +20,6 @@
             <button class="tab-btn active" onclick="switchTab(0)">Broadcast</button>
             <button class="tab-btn" onclick="switchTab(1)">Watch</button>
             <button class="tab-btn" onclick="switchTab(2)">Recordings</button>
-            <button class="tab-btn" onclick="switchTab(3)">Call Hub</button>
         </div>
 
         <!-- Broadcast Tab -->
@@ -65,6 +67,33 @@
                             <input type="number" id="motionThresholdInput" min="0.5" max="10" step="0.01" value="0.50">
                             <p class="mode-help">Recordings begin when the frame change exceeds this percentage (applies to Always-on mode).</p>
                         </div>
+                        <div class="split-control">
+                            <label>Scheduled recording cadence</label>
+                            <div class="dual-input">
+                                <div class="dual-field">
+                                    <span class="input-label">Every</span>
+                                    <input type="number" id="autoRecordFrequency" min="1" max="60" step="1" value="10">
+                                    <span class="input-suffix">minutes</span>
+                                </div>
+                                <div class="dual-field">
+                                    <span class="input-label">Clip length</span>
+                                    <input type="number" id="autoRecordDuration" min="5" max="120" step="5" value="20">
+                                    <span class="input-suffix">seconds</span>
+                                </div>
+                            </div>
+                            <p class="mode-help">Heartbeat clips keep recording even when motion stays quiet.</p>
+                        </div>
+                        <div class="switch-row">
+                            <label class="switch-item">
+                                <input type="checkbox" id="autoRecordToggle" checked>
+                                <span>Enable scheduled capture</span>
+                            </label>
+                            <label class="switch-item">
+                                <input type="checkbox" id="autoStartToggle" checked>
+                                <span>Auto-start broadcast on load</span>
+                            </label>
+                        </div>
+                        <div class="status info" id="autoRecordStatus" style="display: none;"></div>
                         <button class="btn btn-primary" id="startBtn">Start Broadcasting</button>
                         <div class="media-controls" id="broadcastMediaControls" style="display: none;">
                             <button class="media-btn" id="broadcastMicBtn" title="Toggle Microphone">
@@ -117,6 +146,20 @@
                         </button>
                     </div>
                 </div>
+                <div class="watch-recorder">
+                    <div class="watch-recorder-grid">
+                        <div class="control-group compact">
+                            <label>Clip duration (s)</label>
+                            <input type="number" id="watchRecordDuration" min="5" max="90" step="5" value="20">
+                        </div>
+                        <div class="control-group compact">
+                            <label>Label</label>
+                            <input type="text" id="watchRecordLabel" placeholder="Night patrol">
+                        </div>
+                        <button class="btn btn-primary" id="watchRecordBtn">Record Viewer Clip</button>
+                    </div>
+                    <div class="status info" id="watchRecordStatus" style="display: none;"></div>
+                </div>
                 <button class="btn btn-secondary" id="closeRemoteBtn" style="width: 100%; margin-top: 1.25rem;">Close Video</button>
             </div>
         </div>
@@ -132,6 +175,20 @@
                         </div>
                         <button class="refresh-btn" id="refreshRecordingsBtn" title="Refresh clips">↻</button>
                     </div>
+                    <div class="recordings-summary" id="recordingsSummary">
+                        <div>
+                            <span class="summary-label">Clips</span>
+                            <span class="summary-value" data-field="clips">0</span>
+                        </div>
+                        <div>
+                            <span class="summary-label">Favorites</span>
+                            <span class="summary-value" data-field="favorites">0</span>
+                        </div>
+                        <div>
+                            <span class="summary-label">Storage</span>
+                            <span class="summary-value" data-field="storage">0 MB</span>
+                        </div>
+                    </div>
                     <div class="filter-row">
                         <label for="recordingsCameraFilter">Camera</label>
                         <select id="recordingsCameraFilter">
@@ -142,6 +199,13 @@
                     <div id="recordingsList" class="recordings-feed">
                         <div class="recordings-empty">No clips available yet. Motion captures will appear here.</div>
                     </div>
+                    <div class="favorites-block">
+                        <div class="favorites-header">
+                            <h3>Favorites</h3>
+                            <span class="pill small" id="favoritesCount">0</span>
+                        </div>
+                        <div id="favoritesList" class="favorites-list recordings-feed"></div>
+                    </div>
                 </div>
                 <div class="recordings-player">
                     <div class="player-shell">
@@ -151,79 +215,29 @@
                         <div class="player-meta">
                             <div class="player-title" id="recordingTitle">Select a clip to begin playback.</div>
                             <div class="player-subtitle" id="recordingMeta">Timestamp · Camera</div>
+                            <dl class="player-stats" id="recordingStats">
+                                <div>
+                                    <dt>Camera</dt>
+                                    <dd>—</dd>
+                                </div>
+                                <div>
+                                    <dt>Duration</dt>
+                                    <dd>—</dd>
+                                </div>
+                                <div>
+                                    <dt>Source</dt>
+                                    <dd>—</dd>
+                                </div>
+                                <div>
+                                    <dt>Downloads</dt>
+                                    <dd>0</dd>
+                                </div>
+                            </dl>
                             <div class="player-actions">
+                                <button class="icon-btn" id="toggleFavoriteBtn" disabled>☆ Favorite</button>
                                 <a id="recordingDownloadBtn" class="btn btn-secondary disabled" href="#" target="_blank" rel="noopener">Download Clip</a>
                             </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Call Hub -->
-        <div id="tab3" class="tab-content">
-            <div class="call-layout">
-                <div class="call-sidebar">
-                    <div class="profile-block">
-                        <h3 style="margin-bottom: 0.75rem;">Profile</h3>
-                        <label style="font-size: 0.9rem; color: #9ca3af;">Display name</label>
-                        <input type="text" id="callNameInput" placeholder="e.g., Control Room" style="margin: 0.5rem 0 1rem;">
-                        <div class="switch">
-                            <input type="checkbox" id="autoPickupToggle" checked>
-                            <label for="autoPickupToggle">Auto pickup calls</label>
-                        </div>
-                        <button class="btn btn-primary" id="saveCallProfileBtn" style="margin-top: 1rem;">Go Online</button>
-                    </div>
-
-                    <div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                            <h3>Online Users</h3>
-                            <span class="call-status-chip idle" id="callPresenceChip">Offline</span>
-                        </div>
-                        <div id="onlineUsersList" class="online-users">
-                            <div class="call-empty-state">Save a profile to appear online.</div>
-                        </div>
-                        <div id="callHelpText" class="status warn" style="display: none; margin-top: 1rem;"></div>
-                    </div>
-                </div>
-
-                <div class="call-main">
-                    <div id="callStatusBanner" class="status info">Not in a call</div>
-                    <div id="incomingCallBanner" class="incoming-call hidden">
-                        <span id="incomingCallText">Incoming call...</span>
-                        <div style="display: flex; gap: 0.75rem;">
-                            <button class="btn btn-primary" id="acceptCallBtn">Accept</button>
-                            <button class="btn btn-danger" id="declineCallBtn">Decline</button>
-                        </div>
-                    </div>
-
-                    <div style="margin-top: 1rem;">
-                        <strong>Participants</strong>
-                        <div id="activeCallParticipants" class="participants-chips" style="margin-top: 0.5rem;"></div>
-                    </div>
-
-                    <div class="call-video-grid" id="callVideoGrid">
-                        <div class="video-tile video-wrapper">
-                            <div class="video-label">You</div>
-                            <video id="callLocalVideo" class="call-video" autoplay playsinline muted></video>
-                            <div class="mute-indicator" id="callLocalMuteIndicator">🔇 Muted</div>
-                            <div class="video-overlay-controls">
-                                <button class="overlay-btn" id="callLocalFullscreenBtn" title="Fullscreen">⛶</button>
-                            </div>
-                        </div>
-                        <div id="callRemoteGrid" class="video-tile" style="min-height: 240px; display: flex; align-items: center; justify-content: center;">
-                            <div class="call-empty-state" style="width: 100%;">Remote video feeds will appear here when you join a call.</div>
-                        </div>
-                    </div>
-
-                    <div class="call-controls">
-                        <button class="media-btn active" id="callMicBtn" disabled title="Toggle Microphone">
-                            <span>🎤</span> Mic
-                        </button>
-                        <button class="media-btn active" id="callVideoBtn" disabled title="Toggle Camera">
-                            <span>📹</span> Video
-                        </button>
-                        <button class="btn btn-danger" id="leaveCallBtn" disabled>Leave Call</button>
                     </div>
                 </div>
             </div>
