@@ -54,34 +54,21 @@
                                 <option value="true" selected>With Audio</option>
                             </select>
                         </div>
-                        <div class="control-group">
-                            <label>Broadcast Mode</label>
-                            <select id="broadcastMode">
-                                <option value="viewer-triggered" selected>Viewer-triggered standby</option>
-                                <option value="always-on">Always-on with motion clips</option>
-                            </select>
-                            <p class="mode-help" id="modeHelpText">Camera sleeps until someone tunes in. Screen stays awake.</p>
-                        </div>
-                        <div class="control-group">
-                            <label>Motion trigger threshold (%)</label>
-                            <input type="number" id="motionThresholdInput" min="0.5" max="10" step="0.01" value="0.50">
-                            <p class="mode-help">Recordings begin when the frame change exceeds this percentage (applies to Always-on mode).</p>
-                        </div>
                         <div class="split-control">
                             <label>Scheduled recording cadence</label>
                             <div class="dual-input">
                                 <div class="dual-field">
                                     <span class="input-label">Every</span>
-                                    <input type="number" id="autoRecordFrequency" min="1" max="60" step="1" value="10">
+                                    <input type="number" id="autoRecordFrequency" min="1" max="60" step="1" value="15">
                                     <span class="input-suffix">minutes</span>
                                 </div>
                                 <div class="dual-field">
                                     <span class="input-label">Clip length</span>
-                                    <input type="number" id="autoRecordDuration" min="5" max="120" step="5" value="20">
+                                    <input type="number" id="autoRecordDuration" min="5" max="120" step="5" value="30">
                                     <span class="input-suffix">seconds</span>
                                 </div>
                             </div>
-                            <p class="mode-help">Heartbeat clips keep recording even when motion stays quiet.</p>
+                            <p class="mode-help">Heartbeat clips keep recording on a schedule even when no one is watching.</p>
                         </div>
                         <div class="switch-row">
                             <label class="switch-item">
@@ -106,20 +93,6 @@
                         <div class="viewer-pill" id="viewerCountPill">
                             <span>Live viewers</span>
                             <span class="value" id="viewerCountValue">0</span>
-                        </div>
-                        <div class="motion-panel" id="motionPanel">
-                            <h4>Motion Clips</h4>
-                            <div class="motion-metrics">
-                                <div>
-                                    <span class="metric-label">Live motion</span>
-                                    <span class="metric-value" id="motionPercent">0.00%</span>
-                                </div>
-                                <span class="metric-note">Recording starts at ≥<span id="motionThresholdDisplay">0.50%</span></span>
-                            </div>
-                            <div class="status info" id="motionStatus" style="display: none;"></div>
-                            <div class="recordings-list" id="motionClips">
-                                <div class="mode-help">Motion clips will appear here when movement is detected.</div>
-                            </div>
                         </div>
                         <div id="bcStatus" class="status info" style="display: none;"></div>
                     </div>
@@ -171,7 +144,7 @@
                     <div class="recordings-header">
                         <div>
                             <h2>Saved Recordings</h2>
-                            <p>Browse motion clips stored on the server.</p>
+                            <p>Browse saved recordings stored on the server.</p>
                         </div>
                         <button class="refresh-btn" id="refreshRecordingsBtn" title="Refresh clips">↻</button>
                     </div>
@@ -197,7 +170,7 @@
                     </div>
                     <div id="recordingsStatus" class="status info" style="display: none;"></div>
                     <div id="recordingsList" class="recordings-feed">
-                        <div class="recordings-empty">No clips available yet. Motion captures will appear here.</div>
+                        <div class="recordings-empty">No clips available yet. Saved recordings will appear here.</div>
                     </div>
                     <div class="favorites-block">
                         <div class="favorites-header">
@@ -230,6 +203,18 @@
                                 </div>
                                 <div>
                                     <dt>Downloads</dt>
+                                    <dd>0</dd>
+                                </div>
+                                <div>
+                                    <dt>Avg motion change</dt>
+                                    <dd>—</dd>
+                                </div>
+                                <div>
+                                    <dt>Motion deviation</dt>
+                                    <dd>—</dd>
+                                </div>
+                                <div>
+                                    <dt>Motion samples</dt>
                                     <dd>0</dd>
                                 </div>
                             </dl>

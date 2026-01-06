@@ -314,32 +314,7 @@ body {
 .status.error { background: rgba(255,107,107,0.2); border-color: rgba(255,107,107,0.4); color: #fecaca; }
 .mode-help { margin-top: 0.35rem; font-size: 0.85rem; color: var(--text-muted); }
 
-.motion-panel {
-    border-radius: var(--radius-md);
-    border: 1px dashed rgba(255,255,255,0.08);
-    padding: 1.1rem;
-    background: var(--surface);
-    display: none;
-}
-.motion-panel h4 { font-size: 1rem; margin-bottom: 0.9rem; font-weight: 600; }
-.motion-metrics {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.8rem;
-    align-items: center;
-    justify-content: space-between;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 0.85rem 1rem;
-    background: var(--surface-alt);
-}
-.motion-metrics .metric-label { color: var(--text-muted); font-size: 0.8rem; letter-spacing: 0.1em; }
-.motion-metrics .metric-value { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
-.motion-metrics .metric-note { color: var(--text-muted); font-size: 0.85rem; white-space: nowrap; }
-
 .recordings-list { display: flex; flex-direction: column; gap: 0.6rem; }
-.recording-item { display: flex; justify-content: space-between; align-items: center; padding: 0.8rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); }
-.recording-download { color: var(--accent); text-decoration: none; font-weight: 600; }
 
 .viewer-pill {
     border-radius: var(--radius-md);

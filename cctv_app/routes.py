@@ -147,6 +147,15 @@ def _coerce_float(value):
         return None
 
 
+def _coerce_int(value):
+    if value in (None, ''):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _coerce_timestamp(value):
     if value in (None, '', '0'):
         return datetime.now(timezone.utc)
@@ -186,6 +195,9 @@ def _handle_clip_upload(source):
 
     duration = _coerce_float(request.form.get('duration') or request.form.get('duration_seconds'))
     motion_percent = _coerce_float(request.form.get('motion_percent'))
+    motion_avg_percent = _coerce_float(request.form.get('motion_avg_percent'))
+    motion_std_percent = _coerce_float(request.form.get('motion_std_percent'))
+    motion_sample_count = _coerce_int(request.form.get('motion_sample_count'))
     frequency_minutes = _coerce_float(request.form.get('frequency_minutes'))
     note = request.form.get('note', '').strip() or None
     recorded_by = request.form.get('recorded_by') or camera_id
@@ -206,6 +218,12 @@ def _handle_clip_upload(source):
         payload['duration_seconds'] = duration
     if motion_percent is not None:
         payload['motion_percent'] = motion_percent
+    if motion_avg_percent is not None:
+        payload['motion_avg_percent'] = motion_avg_percent
+    if motion_std_percent is not None:
+        payload['motion_std_percent'] = motion_std_percent
+    if motion_sample_count is not None and motion_sample_count >= 0:
+        payload['motion_sample_count'] = motion_sample_count
     if frequency_minutes is not None:
         payload['frequency_minutes'] = max(0.0, frequency_minutes)
     if note:
@@ -228,6 +246,12 @@ def _handle_clip_upload(source):
     }
     if motion_percent is not None:
         response['motion_percent'] = motion_percent
+    if motion_avg_percent is not None:
+        response['motion_avg_percent'] = motion_avg_percent
+    if motion_std_percent is not None:
+        response['motion_std_percent'] = motion_std_percent
+    if motion_sample_count is not None and motion_sample_count >= 0:
+        response['motion_sample_count'] = motion_sample_count
     if duration is not None:
         response['duration_seconds'] = duration
     if frequency_minutes is not None:
@@ -288,6 +312,12 @@ def motion_clips():
                     entry['duration_seconds'] = meta['duration_seconds']
                 if 'motion_percent' in meta:
                     entry['motion_percent'] = meta['motion_percent']
+                if 'motion_avg_percent' in meta:
+                    entry['motion_avg_percent'] = meta['motion_avg_percent']
+                if 'motion_std_percent' in meta:
+                    entry['motion_std_percent'] = meta['motion_std_percent']
+                if 'motion_sample_count' in meta:
+                    entry['motion_sample_count'] = meta['motion_sample_count']
                 if 'uploaded_at' in meta:
                     entry['uploaded_at'] = meta['uploaded_at']
                 if 'favorite_at' in meta:
