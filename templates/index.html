@@ -42,9 +42,9 @@
                             <label>Video Resolution</label>
                             <select id="resolution">
                                 <option value="320x240">Low (320x240)</option>
-                                <option value="640x480" selected>Medium (640x480)</option>
+                                <option value="640x480">Medium (640x480)</option>
                                 <option value="1280x720">High (720p)</option>
-                                <option value="1920x1080">Full HD (1080p)</option>
+                                <option value="1920x1080" selected>Full HD (1080p)</option>
                             </select>
                         </div>
                         <div class="control-group">
@@ -84,10 +84,10 @@
                         <button class="btn btn-primary" id="startBtn">Start Broadcasting</button>
                         <div class="media-controls" id="broadcastMediaControls" style="display: none;">
                             <button class="media-btn" id="broadcastMicBtn" title="Toggle Microphone">
-                                <span>🎤</span> Mic
+                                <span class="media-icon">Mic</span>
                             </button>
                             <button class="media-btn" id="broadcastVideoBtn" title="Toggle Camera">
-                                <span>📹</span> Video
+                                <span class="media-icon">Video</span>
                             </button>
                         </div>
                         <div class="viewer-pill" id="viewerCountPill">
@@ -219,7 +219,7 @@
                                 </div>
                             </dl>
                             <div class="player-actions">
-                                <button class="icon-btn" id="toggleFavoriteBtn" disabled>☆ Favorite</button>
+                                <button class="icon-btn" id="toggleFavoriteBtn" disabled>Favorite</button>
                                 <a id="recordingDownloadBtn" class="btn btn-secondary disabled" href="#" target="_blank" rel="noopener">Download Clip</a>
                             </div>
                         </div>
