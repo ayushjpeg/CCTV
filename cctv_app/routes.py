@@ -90,6 +90,13 @@ def _mutate_clip_metadata(camera_id, filename, mutator):
         return entry
 
 
+def _delete_clip_metadata(camera_id, filename):
+    with CLIP_METADATA_LOCK:
+        data = _read_metadata()
+        data['clips'].pop(_clip_key(camera_id, filename), None)
+        _write_metadata(data)
+
+
 def _increment_clip_stat(camera_id, filename, field):
     valid = {'views', 'downloads'}
     if field not in valid:
@@ -366,6 +373,22 @@ def manual_clip_upload():
 @bp.route('/api/motion-clips/scheduled', methods=['POST'])
 def scheduled_clip_upload():
     return _handle_clip_upload('scheduled')
+
+
+@bp.route('/api/motion-clips/<camera_id>/<filename>', methods=['DELETE'])
+def delete_clip(camera_id, filename):
+    safe_camera = _safe_camera(camera_id)
+    safe_name = _safe_filename(filename)
+    clip_dir = Path(current_app.config['MOTION_CLIP_DIR']) / safe_camera
+    file_path = clip_dir / safe_name
+    if not file_path.exists():
+        return jsonify({'success': False, 'error': 'Clip not found.'}), 404
+    try:
+        file_path.unlink()
+    except OSError:
+        return jsonify({'success': False, 'error': 'Unable to delete clip file.'}), 500
+    _delete_clip_metadata(safe_camera, safe_name)
+    return jsonify({'success': True})
 
 
 @bp.route('/api/motion-clips/<camera_id>/<filename>/favorite', methods=['PATCH'])
