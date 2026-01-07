@@ -435,16 +435,17 @@ body {
     position: fixed;
     inset: 0;
     background: #000;
-    color: #fff;
+    color: transparent;
     display: none;
     align-items: center;
     justify-content: center;
-    text-align: center;
-    font-size: 1.1rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
     z-index: 9999;
-    padding: 2rem;
+    padding: 0;
+    cursor: none;
+}
+body.idle-mode {
+    background: #000;
+    overflow: hidden;
 }
 
 .video-wrapper { position: relative; }
