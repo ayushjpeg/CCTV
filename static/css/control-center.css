@@ -431,6 +431,21 @@ body {
 }
 .icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .icon-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(29,229,255,0.12); }
+.idle-screen {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    color: #fff;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    z-index: 9999;
+    padding: 2rem;
+}
 
 .video-wrapper { position: relative; }
 .video-overlay-controls {
