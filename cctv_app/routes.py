@@ -157,6 +157,15 @@ def cleanup_expired_clips():
                 if ts is None:
                     ts = stat.st_mtime
 
+                # Diagnostic logging per clip
+                try:
+                    age = now - ts
+                    status = 'EXPIRED' if ts < cutoff else 'KEEP'
+                    current_app.logger.warning('Clip check: %s ts=%s age=%.0f status=%s', clip_path, ts, age, status)
+                    print(f'Clip check: {clip_path} ts={ts} age={age:.0f} status={status}')
+                except Exception:
+                    pass
+
                 if ts < cutoff:
                     try:
                         clip_path.unlink()
