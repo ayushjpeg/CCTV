@@ -118,14 +118,17 @@ def cleanup_expired_clips():
     retention = int(current_app.config.get('CLIP_RETENTION_SECONDS', 0) or 0)
     if retention <= 0:
         return
-    cutoff = time.time() - retention
+    now = time.time()
+    cutoff = now - retention
     base_dir = Path(current_app.config['MOTION_CLIP_DIR'])
     if not base_dir.exists():
         return
 
     removed = False
+    removed_list = []
     with CLIP_METADATA_LOCK:
         data = _read_metadata()
+        current_app.logger.debug('Running cleanup_expired_clips: retention=%s seconds, cutoff=%s', retention, cutoff)
         for camera_dir in base_dir.iterdir():
             if not camera_dir.is_dir():
                 continue
@@ -134,15 +137,41 @@ def cleanup_expired_clips():
                     stat = clip_path.stat()
                 except OSError:
                     continue
-                if stat.st_mtime < cutoff:
+
+                key = _clip_key(camera_dir.name, clip_path.name)
+                meta = data.get('clips', {}).get(key, {})
+                # Prefer uploaded_at from metadata if present, otherwise fall back to file mtime
+                uploaded_at = meta.get('uploaded_at')
+                ts = None
+                if uploaded_at:
+                    try:
+                        dt = _coerce_timestamp(uploaded_at)
+                        ts = dt.timestamp()
+                    except Exception:
+                        ts = None
+                if ts is None:
+                    ts = stat.st_mtime
+
+                if ts < cutoff:
                     try:
                         clip_path.unlink()
+                        removed_list.append(str(clip_path))
                     except OSError:
+                        current_app.logger.warning('Failed to unlink expired clip: %s', clip_path)
                         continue
-                    data['clips'].pop(_clip_key(camera_dir.name, clip_path.name), None)
+                    data['clips'].pop(key, None)
                     removed = True
+
         if removed:
-            _write_metadata(data)
+            try:
+                _write_metadata(data)
+            except Exception:
+                current_app.logger.exception('Failed to write clip metadata after cleanup')
+
+    if removed_list:
+        current_app.logger.info('Removed %d expired clips', len(removed_list))
+        for p in removed_list:
+            current_app.logger.debug('Removed clip: %s', p)
 
 
 def _coerce_float(value):
