@@ -128,7 +128,12 @@ def cleanup_expired_clips():
     removed_list = []
     with CLIP_METADATA_LOCK:
         data = _read_metadata()
-        current_app.logger.debug('Running cleanup_expired_clips: retention=%s seconds, cutoff=%s', retention, cutoff)
+        # Use warning/print so messages appear in default Docker logs (info/debug may be filtered)
+        current_app.logger.warning('Running cleanup_expired_clips: retention=%s seconds, cutoff=%s', retention, cutoff)
+        try:
+            print(f'Running cleanup_expired_clips: retention={retention} cutoff={cutoff}')
+        except Exception:
+            pass
         for camera_dir in base_dir.iterdir():
             if not camera_dir.is_dir():
                 continue
@@ -169,9 +174,13 @@ def cleanup_expired_clips():
                 current_app.logger.exception('Failed to write clip metadata after cleanup')
 
     if removed_list:
-        current_app.logger.info('Removed %d expired clips', len(removed_list))
-        for p in removed_list:
-            current_app.logger.debug('Removed clip: %s', p)
+        current_app.logger.warning('Removed %d expired clips', len(removed_list))
+        try:
+            print(f'Removed {len(removed_list)} expired clips')
+            for p in removed_list:
+                print(p)
+        except Exception:
+            pass
 
 
 def _coerce_float(value):
